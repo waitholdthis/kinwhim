@@ -1,20 +1,28 @@
 import {
+  blockedUserIds,
   database,
   jsonError,
   mediaUrl,
+  publicOrigin,
   requireViewer,
-  upsertProfile,
 } from "@/lib/kinwhim-server";
+import { CURRENT_TERMS_VERSION } from "@/lib/policies";
+import { unreadCountFor } from "@/lib/push";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
     const viewer = await requireViewer();
-    await upsertProfile(viewer);
     const db = database();
     const url = new URL(request.url);
     const requestedCircle = url.searchParams.get("circle");
+    const viewerSummary = {
+      id: viewer.id,
+      name: viewer.name,
+      email: viewer.email,
+      needsTerms: viewer.termsVersion !== CURRENT_TERMS_VERSION,
+    };
 
     const circleRows = await db
       .prepare(
@@ -30,15 +38,18 @@ export async function GET(request: Request) {
     const circles = circleRows.results;
     const selected =
       circles.find((circle) => circle.id === requestedCircle) ?? circles[0] ?? null;
+    const badgeCount = await unreadCountFor(viewer.id);
 
     if (!selected) {
       return Response.json({
-        viewer,
+        viewer: viewerSummary,
         circles: [],
         circle: null,
         members: [],
         memories: [],
         unreadCount: 0,
+        badgeCount,
+        termsVersion: CURRENT_TERMS_VERSION,
       });
     }
 
@@ -48,11 +59,12 @@ export async function GET(request: Request) {
       month: "2-digit",
       day: "2-digit",
     }).format(new Date());
+    const blocked = await blockedUserIds(viewer.id);
 
     const memberRows = await db
       .prepare(
-        `SELECT p.id, p.display_name AS name, p.email, cm.role,
-                ci.photo_key AS photoKey, ci.mood, ci.caption,
+        `SELECT p.id, p.display_name AS name, cm.role,
+                ci.id AS checkinId, ci.photo_key AS photoKey, ci.mood, ci.caption,
                 ci.consent_transform AS consentTransform
          FROM circle_members cm
          INNER JOIN profiles p ON p.id = cm.user_id
@@ -71,35 +83,62 @@ export async function GET(request: Request) {
                 CASE WHEN EXISTS (
                   SELECT 1 FROM notification_reads nr
                   WHERE nr.memory_id = m.id AND nr.user_id = ?
-                ) THEN 1 ELSE 0 END AS isRead
+                ) THEN 1 ELSE 0 END AS isRead,
+                CASE WHEN EXISTS (
+                  SELECT 1 FROM memory_participants mp
+                  WHERE mp.memory_id = m.id AND mp.user_id = ?
+                ) THEN 1 ELSE 0 END AS featuresViewer
          FROM memories m
          LEFT JOIN reactions r ON r.memory_id = m.id
          WHERE m.circle_id = ?
+           AND NOT EXISTS (
+             SELECT 1 FROM reports rp
+             WHERE rp.target_type = 'memory' AND rp.target_id = m.id AND rp.reporter_id = ?
+           )
          GROUP BY m.id
          ORDER BY m.day DESC
-         LIMIT 20`,
+         LIMIT 30`,
       )
-      .bind(viewer.id, selected.id)
+      .bind(viewer.id, viewer.id, selected.id, viewer.id)
       .all<Record<string, string | number | null>>();
 
     return Response.json({
-      viewer,
+      viewer: viewerSummary,
       circles,
-      circle: selected,
+      circle: {
+        ...selected,
+        inviteUrl: `${publicOrigin(request)}/join/${encodeURIComponent(String(selected.inviteCode))}`,
+      },
       today,
-      members: memberRows.results.map((member) => ({
-        ...member,
-        checkedIn: Boolean(member.photoKey),
-        photoUrl: mediaUrl(member.photoKey ? String(member.photoKey) : null),
-        consentTransform: Boolean(member.consentTransform),
-      })),
+      members: memberRows.results.map((member) => {
+        const isBlocked = blocked.has(String(member.id));
+        return {
+          id: member.id,
+          name: member.name,
+          role: member.role,
+          checkinId: isBlocked ? null : member.checkinId,
+          checkedIn: Boolean(member.photoKey),
+          photoUrl: isBlocked ? null : mediaUrl(member.photoKey ? String(member.photoKey) : null),
+          mood: member.mood,
+          caption: isBlocked ? null : member.caption,
+          consentTransform: Boolean(member.consentTransform),
+          blocked: isBlocked,
+        };
+      }),
       memories: memoryRows.results.map((memory) => ({
-        ...memory,
+        id: memory.id,
+        day: memory.day,
+        kind: memory.kind,
+        title: memory.title,
+        createdAt: memory.createdAt,
         mediaUrl: mediaUrl(String(memory.mediaKey)),
         reactions: memory.reactions ? String(memory.reactions).split(",") : [],
         isRead: Boolean(memory.isRead),
+        featuresViewer: Boolean(memory.featuresViewer),
       })),
       unreadCount: memoryRows.results.filter((memory) => !memory.isRead).length,
+      badgeCount,
+      termsVersion: CURRENT_TERMS_VERSION,
     });
   } catch (error) {
     return jsonError(error);

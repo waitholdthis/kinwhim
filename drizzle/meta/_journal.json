@@ -22,6 +22,13 @@
       "when": 1791506564863,
       "tag": "0002_tired_ogun",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1791567392921,
+      "tag": "0003_pink_raider",
+      "breakpoints": true
     }
   ]
 }

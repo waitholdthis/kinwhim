@@ -1,8 +1,10 @@
 import { Buffer } from "node:buffer";
 import { env } from "cloudflare:workers";
 import { bucket, database, nowSeconds } from "@/lib/kinwhim-server";
+import { sendPush } from "@/lib/push";
 
 type CheckinRow = {
+  userId: string;
   photoKey: string;
   name: string;
   mood: string | null;
@@ -32,7 +34,7 @@ export async function generateCircleMemory(input: {
 
   const checkinRows = await db
     .prepare(
-      `SELECT ci.photo_key AS photoKey, p.display_name AS name, ci.mood, ci.caption
+      `SELECT ci.user_id AS userId, ci.photo_key AS photoKey, p.display_name AS name, ci.mood, ci.caption
        FROM checkins ci
        INNER JOIN profiles p ON p.id = ci.user_id
        WHERE ci.circle_id = ? AND ci.day = ? AND ci.consent_transform = 1
@@ -40,7 +42,7 @@ export async function generateCircleMemory(input: {
     )
     .bind(input.circleId, input.day)
     .all<CheckinRow>();
-  const checkins = checkinRows.results;
+  const checkins = await withoutBlockedPairs(checkinRows.results);
   if (checkins.length < 2) {
     throw new GenerationError(
       "Two consenting check-ins are needed to make tonight’s world.",
@@ -142,12 +144,23 @@ export async function generateCircleMemory(input: {
         nowSeconds(),
       )
       .run();
+    // Record who appears so the memory can be removed if any of them deletes their account.
+    await db.batch(
+      checkins.map((checkin) =>
+        db
+          .prepare("INSERT OR IGNORE INTO memory_participants (id, memory_id, user_id) VALUES (?, ?, ?)")
+          .bind(crypto.randomUUID(), memoryId, checkin.userId),
+      ),
+    );
     await db
       .prepare(
         "UPDATE generation_jobs SET status = 'complete', updated_at = ? WHERE circle_id = ? AND day = ?",
       )
       .bind(nowSeconds(), input.circleId, input.day)
       .run();
+    await notifyCircle(input.circleId, memoryId, circle.name).catch((error) =>
+      console.error("Memory push failed", error),
+    );
     return { ok: true, memoryId };
   } catch (error) {
     await db
@@ -156,6 +169,45 @@ export async function generateCircleMemory(input: {
       .run();
     throw error;
   }
+}
+
+// People who have blocked each other never appear in the same new memory.
+// Earlier check-ins keep their place; a later blocked friend sits this one out.
+async function withoutBlockedPairs(checkins: CheckinRow[]) {
+  if (checkins.length < 2) return checkins;
+  const ids = checkins.map((checkin) => checkin.userId);
+  const placeholders = ids.map(() => "?").join(",");
+  const blocks = await database()
+    .prepare(
+      `SELECT blocker_id AS a, blocked_id AS b FROM user_blocks
+       WHERE blocker_id IN (${placeholders}) AND blocked_id IN (${placeholders})`,
+    )
+    .bind(...ids, ...ids)
+    .all<{ a: string; b: string }>();
+  if (!blocks.results.length) return checkins;
+  const conflicts = new Set(blocks.results.flatMap(({ a, b }) => [`${a}|${b}`, `${b}|${a}`]));
+  const included: CheckinRow[] = [];
+  for (const checkin of checkins) {
+    if (!included.some((other) => conflicts.has(`${other.userId}|${checkin.userId}`))) {
+      included.push(checkin);
+    }
+  }
+  return included;
+}
+
+async function notifyCircle(circleId: string, memoryId: string, circleName: string) {
+  const members = await database()
+    .prepare("SELECT user_id AS userId FROM circle_members WHERE circle_id = ?")
+    .bind(circleId)
+    .all<{ userId: string }>();
+  await sendPush(
+    members.results.map((member) => member.userId),
+    {
+      title: circleName,
+      body: "Tonight’s little world is ready ✨",
+      data: { url: `kinwhim://memory/${memoryId}?circle=${circleId}`, memoryId, circleId },
+    },
+  );
 }
 
 function makePrompt(circleName: string, style: string, checkins: CheckinRow[]) {

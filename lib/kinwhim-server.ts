@@ -1,27 +1,40 @@
 import { env } from "cloudflare:workers";
 import { headers } from "next/headers";
+import { resolveSession, sessionTokenFrom } from "@/lib/auth/session";
+import { CURRENT_TERMS_VERSION } from "@/lib/policies";
 
 export type Viewer = {
   id: string;
   email: string;
   name: string;
+  termsVersion: string | null;
+  sessionId: string;
 };
 
+export async function getViewer(): Promise<Viewer | null> {
+  const token = sessionTokenFrom(await headers());
+  return token ? resolveSession(token) : null;
+}
+
 export async function requireViewer(): Promise<Viewer> {
-  const requestHeaders = await headers();
-  const id = requestHeaders.get("oai-authenticated-user-id");
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  if (!id || !email) throw new Response("Sign in required", { status: 401 });
+  const viewer = await getViewer();
+  if (!viewer) {
+    throw Response.json({ error: "Sign in required", code: "signed_out" }, { status: 401 });
+  }
+  return viewer;
+}
 
-  const encodedName = requestHeaders.get("oai-authenticated-user-full-name");
-  const name =
-    encodedName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? safeDecode(encodedName) ?? email.split("@")[0]
-      : email.split("@")[0];
-
-  return { id, email, name };
+export function requireCurrentTerms(viewer: Viewer) {
+  if (viewer.termsVersion !== CURRENT_TERMS_VERSION) {
+    throw Response.json(
+      {
+        error: "Please review and accept the Kinwhim Terms before sharing photos.",
+        code: "terms_required",
+        termsVersion: CURRENT_TERMS_VERSION,
+      },
+      { status: 403 },
+    );
+  }
 }
 
 export function database(): D1Database {
@@ -38,19 +51,8 @@ export function nowSeconds() {
   return Math.floor(Date.now() / 1000);
 }
 
-export async function upsertProfile(viewer: Viewer) {
-  const now = nowSeconds();
-  await database()
-    .prepare(
-      `INSERT INTO profiles (id, email, display_name, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         email = excluded.email,
-         display_name = excluded.display_name,
-         updated_at = excluded.updated_at`,
-    )
-    .bind(viewer.id, viewer.email, viewer.name, now, now)
-    .run();
+export function publicOrigin(request: Request) {
+  return env.PUBLIC_APP_URL?.replace(/\/$/, "") || new URL(request.url).origin;
 }
 
 export async function requireCircleMember(circleId: string, userId: string) {
@@ -64,20 +66,35 @@ export async function requireCircleMember(circleId: string, userId: string) {
   return membership;
 }
 
+// Everyone the user has blocked or been blocked by. Blocking is mutual for
+// visibility: neither side sees the other's selfies, and they are never put
+// into the same new memory.
+export async function blockedUserIds(userId: string) {
+  const rows = await database()
+    .prepare(
+      `SELECT blocked_id AS id FROM user_blocks WHERE blocker_id = ?
+       UNION SELECT blocker_id AS id FROM user_blocks WHERE blocked_id = ?`,
+    )
+    .bind(userId, userId)
+    .all<{ id: string }>();
+  return new Set(rows.results.map((row) => row.id));
+}
+
 export function mediaUrl(key: string | null) {
   return key ? `/api/media/${encodeURIComponent(key)}` : null;
 }
 
 export function jsonError(error: unknown) {
   if (error instanceof Response) return error;
+  console.error(error);
   const message = error instanceof Error ? error.message : "Something went sideways.";
   return Response.json({ error: message }, { status: 500 });
 }
 
-function safeDecode(value: string) {
+export async function readJson<T>(request: Request): Promise<Partial<T>> {
   try {
-    return decodeURIComponent(value);
+    return (await request.json()) as Partial<T>;
   } catch {
-    return null;
+    return {};
   }
 }

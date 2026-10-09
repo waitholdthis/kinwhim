@@ -1,32 +1,43 @@
+import { makeInviteCode, MAX_CIRCLE_MEMBERS, normalizeInviteCode } from "@/lib/invites";
 import {
   database,
   jsonError,
   nowSeconds,
+  readJson,
   requireViewer,
-  upsertProfile,
 } from "@/lib/kinwhim-server";
+import { allow, tooMany } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
   try {
     const viewer = await requireViewer();
-    await upsertProfile(viewer);
-    const body = (await request.json()) as {
-      action?: "create" | "join";
-      name?: string;
-      code?: string;
-      timezone?: string;
-    };
+    const body = await readJson<{
+      action: "create" | "join";
+      name: string;
+      code: string;
+      timezone: string;
+    }>(request);
     const db = database();
     const now = nowSeconds();
 
     if (body.action === "join") {
-      const code = body.code?.trim().toUpperCase();
+      if (!(await allow(`join:${viewer.id}`, 20, 60 * 60))) return tooMany();
+      const code = normalizeInviteCode(body.code);
       if (!code) return Response.json({ error: "Enter an invite code." }, { status: 400 });
       const circle = await db
-        .prepare("SELECT id FROM circles WHERE invite_code = ? LIMIT 1")
+        .prepare(
+          `SELECT id, (SELECT COUNT(*) FROM circle_members WHERE circle_id = circles.id) AS memberCount
+           FROM circles WHERE invite_code = ? LIMIT 1`,
+        )
         .bind(code)
-        .first<{ id: string }>();
+        .first<{ id: string; memberCount: number }>();
       if (!circle) return Response.json({ error: "That invite code is taking a nap." }, { status: 404 });
+      if (Number(circle.memberCount) >= MAX_CIRCLE_MEMBERS) {
+        return Response.json(
+          { error: `Circles hold up to ${MAX_CIRCLE_MEMBERS} friends, and this one is full.` },
+          { status: 409 },
+        );
+      }
       await db
         .prepare(
           `INSERT INTO circle_members (id, circle_id, user_id, role, joined_at)
@@ -38,6 +49,7 @@ export async function POST(request: Request) {
       return Response.json({ circleId: circle.id });
     }
 
+    if (!(await allow(`create-circle:${viewer.id}`, 10, 24 * 60 * 60))) return tooMany();
     const name = body.name?.trim().slice(0, 48);
     if (!name) return Response.json({ error: "Give your circle a name." }, { status: 400 });
     const circleId = crypto.randomUUID();
@@ -62,11 +74,4 @@ export async function POST(request: Request) {
   } catch (error) {
     return jsonError(error);
   }
-}
-
-function makeInviteCode() {
-  const words = ["WINK", "MOON", "MINT", "BLOOM", "PICO", "JOLLY", "NOVA", "BIRD"];
-  const word = words[Math.floor(Math.random() * words.length)];
-  const suffix = Math.floor(100 + Math.random() * 900);
-  return `${word}${suffix}`;
 }

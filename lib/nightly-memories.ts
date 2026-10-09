@@ -1,5 +1,6 @@
 import { generateCircleMemory } from "@/lib/generate-memory";
-import { database } from "@/lib/kinwhim-server";
+import { purgeExpiredSelfies, purgeOldEvidence } from "@/lib/content";
+import { database, nowSeconds } from "@/lib/kinwhim-server";
 
 type CircleRow = { id: string; timezone: string; revealHour: number; memberCount: number };
 
@@ -57,10 +58,22 @@ export async function runNightlyMemories() {
       });
     }
   }
+
+  // Housekeeping rides along with the nightly run.
+  const purgedSelfies = await purgeExpiredSelfies();
+  await purgeOldEvidence();
+  const now = nowSeconds();
+  await db.batch([
+    db.prepare("DELETE FROM sessions WHERE expires_at < ?").bind(now),
+    db.prepare("DELETE FROM email_codes WHERE expires_at < ?").bind(now),
+    db.prepare("DELETE FROM rate_limits WHERE window_start < ?").bind(now - 7 * 86_400),
+  ]);
+
   return {
     generated,
     skipped: skipped.length,
     errors,
+    purgedSelfies,
     summary: generated.length
       ? `Created ${generated.length} nightly ${generated.length === 1 ? "memory" : "memories"}.`
       : "No circles were ready for a new memory.",

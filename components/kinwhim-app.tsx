@@ -27,6 +27,7 @@ type Circle = {
   id: string;
   name: string;
   inviteCode: string;
+  inviteUrl?: string;
   ownerId: string;
   revealHour: number;
   timezone: string;
@@ -36,8 +37,9 @@ type Circle = {
 type Member = {
   id: string;
   name: string;
-  email: string;
   role: string;
+  checkinId: string | null;
+  blocked: boolean;
   checkedIn: boolean;
   photoUrl: string | null;
   mood: string | null;
@@ -57,7 +59,8 @@ type Memory = {
 };
 
 type Dashboard = {
-  viewer: { id: string; name: string; email: string };
+  viewer: { id: string; name: string; email: string; needsTerms: boolean };
+  termsVersion: string;
   circles: Circle[];
   circle: Circle | null;
   today?: string;
@@ -91,6 +94,7 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
   const [tab, setTab] = useState<"today" | "memories" | "circle">("today");
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showCheckin, setShowCheckin] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [showActivity, setShowActivity] = useState(false);
   const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null);
@@ -193,6 +197,25 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
     } finally {
       setBusy(null);
     }
+  }
+
+  function openCheckin() {
+    if (data?.viewer.needsTerms) setShowTerms(true);
+    else setShowCheckin(true);
+  }
+
+  async function acceptTerms() {
+    if (!data) return;
+    const response = await fetch("/api/account/terms", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ version: data.termsVersion, ageConfirmed: true }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error);
+    setData({ ...data, viewer: { ...data.viewer, needsTerms: false } });
+    setShowTerms(false);
+    setShowCheckin(true);
   }
 
   async function generateMemory(automatic = false) {
@@ -398,11 +421,11 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
                     <LockKeyhole size={15} /> Private to this circle · transforms at {revealLabel}
                   </p>
                   {!me?.checkedIn ? (
-                    <button onClick={() => setShowCheckin(true)} className="kw-primary kw-primary-light">
+                    <button onClick={openCheckin} className="kw-primary kw-primary-light">
                       <Camera size={18} /> Take today’s selfie
                     </button>
                   ) : (
-                    <button onClick={() => setShowCheckin(true)} className="kw-secondary-dark">
+                    <button onClick={openCheckin} className="kw-secondary-dark">
                       <Check size={17} /> Checked in · retake
                     </button>
                   )}
@@ -485,6 +508,14 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
               onSave={saveCircleSettings}
             />
           )}
+          {tab === "circle" && (
+            <nav className="mx-auto mt-6 flex max-w-3xl flex-wrap justify-center gap-x-5 gap-y-2 text-sm font-bold text-[#6d675a]">
+              <a href="/account" className="underline-offset-4 hover:underline">Account &amp; privacy</a>
+              <a href="/privacy" className="underline-offset-4 hover:underline">Privacy Policy</a>
+              <a href="/terms" className="underline-offset-4 hover:underline">Terms</a>
+              <a href="/support" className="underline-offset-4 hover:underline">Help &amp; safety</a>
+            </nav>
+          )}
         </div>
       ) : (
         <EmptyHome name={firstName(user.name)} onStart={() => setShowOnboarding(true)} error={error} />
@@ -522,6 +553,9 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
           }}
           onError={setError}
         />
+      )}
+      {showTerms && (
+        <TermsModal onClose={() => setShowTerms(false)} onAccept={acceptTerms} />
       )}
       {showInvite && data?.circle && (
         <InviteModal circle={data.circle} onClose={() => setShowInvite(false)} />
@@ -834,9 +868,9 @@ function CheckinModal({ circle, day, current, onClose, onSaved, onDeleted, onErr
 
 function InviteModal({ circle, onClose }: { circle: Circle; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
-  const inviteUrl = `${typeof window === "undefined" ? "" : window.location.origin}/?join=${circle.inviteCode}`;
+  const inviteUrl = circle.inviteUrl ?? `${typeof window === "undefined" ? "" : window.location.origin}/join/${circle.inviteCode}`;
   const inviteText = `Join my private Kinwhim circle “${circle.name}”. One selfie a day, one shared little world. ${inviteUrl}`;
-  return <Modal onClose={onClose}><div className="flex justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-widest text-[#b75d3e]">Bring the crew</p><h2 className="mt-2 font-serif text-4xl font-black">Pass the secret knock.</h2></div><CloseButton onClick={onClose} /></div><div className="mt-7 rounded-[26px] bg-[#242117] p-7 text-center text-[#fff8e8]"><p className="text-xs font-black uppercase tracking-[.2em] text-[#f5d98b]">Invite code</p><p className="mt-3 font-mono text-4xl font-black tracking-[.12em]">{circle.inviteCode}</p></div><button onClick={async () => { await navigator.clipboard.writeText(inviteText); setCopied(true); }} className="kw-primary mt-5 w-full justify-center">{copied ? <Check size={18} /> : <Copy size={18} />}{copied ? "Link copied—send it anywhere" : "Copy smart invite link"}</button><p className="mt-4 text-center text-xs leading-relaxed text-[#6d675a]">The link fills in the code automatically. Friends still need permission to open this private site.</p></Modal>;
+  return <Modal onClose={onClose}><div className="flex justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-widest text-[#b75d3e]">Bring the crew</p><h2 className="mt-2 font-serif text-4xl font-black">Pass the secret knock.</h2></div><CloseButton onClick={onClose} /></div><div className="mt-7 rounded-[26px] bg-[#242117] p-7 text-center text-[#fff8e8]"><p className="text-xs font-black uppercase tracking-[.2em] text-[#f5d98b]">Invite code</p><p className="mt-3 font-mono text-4xl font-black tracking-[.12em]">{circle.inviteCode}</p></div><button onClick={async () => { await navigator.clipboard.writeText(inviteText); setCopied(true); }} className="kw-primary mt-5 w-full justify-center">{copied ? <Check size={18} /> : <Copy size={18} />}{copied ? "Link copied—send it anywhere" : "Copy smart invite link"}</button><p className="mt-4 text-center text-xs leading-relaxed text-[#6d675a]">The link opens the Kinwhim app and fills in the code. Only people with this code can join.</p></Modal>;
 }
 
 function ActivityModal({ memories, onClose, onOpen }: {
@@ -865,6 +899,47 @@ function ActivityModal({ memories, onClose, onOpen }: {
           <div className="rounded-[22px] bg-[#eae2d4] p-6 text-center"><Bell className="mx-auto" /><p className="mt-3 font-black">Quiet for now.</p><p className="mt-1 text-sm text-[#6d675a]">New memories will appear here after reveal time.</p></div>
         )}
       </div>
+    </Modal>
+  );
+}
+
+function TermsModal({ onClose, onAccept }: { onClose: () => void; onAccept: () => Promise<void> }) {
+  const [agreed, setAgreed] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <Modal onClose={onClose}>
+      <div className="flex justify-between gap-4">
+        <div>
+          <p className="text-xs font-black uppercase tracking-widest text-[#b75d3e]">Before your first selfie</p>
+          <h2 className="mt-2 font-serif text-4xl font-black">A few promises.</h2>
+        </div>
+        <CloseButton onClick={onClose} />
+      </div>
+      <ul className="mt-6 space-y-3 text-sm leading-relaxed text-[#5b5548]">
+        <li>• Only share photos of yourself. No nudity, harassment, or anything you wouldn’t want your friends to see.</li>
+        <li>• If you opt in, your selfie is sent to our AI image provider to make the nightly memory. Raw selfies are deleted after 14 days.</li>
+        <li>• You can report or block anyone, leave any circle, and delete your selfies or account at any time.</li>
+      </ul>
+      <label className="mt-6 flex items-start gap-3 text-sm font-bold">
+        <input type="checkbox" checked={agreed} onChange={(event) => setAgreed(event.target.checked)} className="mt-1 h-4 w-4" />
+        <span>
+          I’m 13 or older and agree to the <a className="underline" href="/terms" target="_blank">Terms</a> and{" "}
+          <a className="underline" href="/privacy" target="_blank">Privacy Policy</a>, including zero tolerance for objectionable content.
+        </span>
+      </label>
+      {error && <p className="mt-4 font-bold text-[#b23b2a]">{error}</p>}
+      <button
+        disabled={!agreed || saving}
+        onClick={async () => {
+          setSaving(true);
+          setError(null);
+          try { await onAccept(); } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not save."); } finally { setSaving(false); }
+        }}
+        className="kw-primary mt-6 w-full justify-center disabled:opacity-45"
+      >
+        {saving ? <LoaderCircle className="animate-spin" size={18} /> : <Check size={18} />} Agree and continue
+      </button>
     </Modal>
   );
 }

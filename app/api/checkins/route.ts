@@ -4,14 +4,18 @@ import {
   jsonError,
   nowSeconds,
   requireCircleMember,
+  requireCurrentTerms,
   requireViewer,
 } from "@/lib/kinwhim-server";
+import { allow, tooMany } from "@/lib/rate-limit";
 
 const MAX_PHOTO_BYTES = 12 * 1024 * 1024;
 
 export async function POST(request: Request) {
   try {
     const viewer = await requireViewer();
+    requireCurrentTerms(viewer);
+    if (!(await allow(`upload:${viewer.id}`, 40, 24 * 60 * 60))) return tooMany();
     const form = await request.formData();
     const circleId = String(form.get("circleId") || "");
     const day = String(form.get("day") || "");
@@ -24,7 +28,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "That check-in date looks unusual." }, { status: 400 });
     }
     await requireCircleMember(circleId, viewer.id);
-    if (!(photo instanceof File) || !photo.type.startsWith("image/")) {
+    if (!(photo instanceof File) || !/^image\/(jpeg|png|webp|heic|heif)$/.test(photo.type)) {
       return Response.json({ error: "Choose a photo to check in." }, { status: 400 });
     }
     if (photo.size > MAX_PHOTO_BYTES) {
