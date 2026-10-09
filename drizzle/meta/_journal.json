@@ -15,6 +15,13 @@
       "when": 1791340456807,
       "tag": "0001_spicy_wilson_fisk",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1791506564863,
+      "tag": "0002_tired_ogun",
+      "breakpoints": true
     }
   ]
 }

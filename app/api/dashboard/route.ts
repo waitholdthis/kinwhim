@@ -32,7 +32,14 @@ export async function GET(request: Request) {
       circles.find((circle) => circle.id === requestedCircle) ?? circles[0] ?? null;
 
     if (!selected) {
-      return Response.json({ viewer, circles: [], circle: null, members: [], memories: [] });
+      return Response.json({
+        viewer,
+        circles: [],
+        circle: null,
+        members: [],
+        memories: [],
+        unreadCount: 0,
+      });
     }
 
     const today = new Intl.DateTimeFormat("en-CA", {
@@ -60,7 +67,11 @@ export async function GET(request: Request) {
     const memoryRows = await db
       .prepare(
         `SELECT m.id, m.day, m.media_key AS mediaKey, m.kind, m.title, m.created_at AS createdAt,
-                GROUP_CONCAT(r.emoji) AS reactions
+                GROUP_CONCAT(r.emoji) AS reactions,
+                CASE WHEN EXISTS (
+                  SELECT 1 FROM notification_reads nr
+                  WHERE nr.memory_id = m.id AND nr.user_id = ?
+                ) THEN 1 ELSE 0 END AS isRead
          FROM memories m
          LEFT JOIN reactions r ON r.memory_id = m.id
          WHERE m.circle_id = ?
@@ -68,7 +79,7 @@ export async function GET(request: Request) {
          ORDER BY m.day DESC
          LIMIT 20`,
       )
-      .bind(selected.id)
+      .bind(viewer.id, selected.id)
       .all<Record<string, string | number | null>>();
 
     return Response.json({
@@ -86,7 +97,9 @@ export async function GET(request: Request) {
         ...memory,
         mediaUrl: mediaUrl(String(memory.mediaKey)),
         reactions: memory.reactions ? String(memory.reactions).split(",") : [],
+        isRead: Boolean(memory.isRead),
       })),
+      unreadCount: memoryRows.results.filter((memory) => !memory.isRead).length,
     });
   } catch (error) {
     return jsonError(error);

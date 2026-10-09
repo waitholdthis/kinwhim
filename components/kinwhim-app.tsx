@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Bell,
   Camera,
   Check,
   ChevronDown,
@@ -51,6 +52,7 @@ type Memory = {
   title: string;
   createdAt: number;
   reactions: string[];
+  isRead: boolean;
 };
 
 type Dashboard = {
@@ -60,6 +62,7 @@ type Dashboard = {
   today?: string;
   members: Member[];
   memories: Memory[];
+  unreadCount: number;
 };
 
 const moods = [
@@ -80,6 +83,7 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showCheckin, setShowCheckin] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
+  const [showActivity, setShowActivity] = useState(false);
   const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null);
   const [movieProgress, setMovieProgress] = useState(0);
   const [joinCode, setJoinCode] = useState<string | null>(null);
@@ -273,6 +277,18 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
                 Invite a friend
               </button>
               <button
+                onClick={() => setShowActivity(true)}
+                className="relative grid h-10 w-10 place-items-center rounded-full border border-[#29251d]/15 bg-white/60"
+                aria-label="Open Kinwhim activity"
+              >
+                <Bell size={18} />
+                {data.unreadCount > 0 && (
+                  <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-[#ef8354] px-1 text-[10px] font-black text-[#242117]">
+                    {data.unreadCount}
+                  </span>
+                )}
+              </button>
+              <button
                 onClick={() => setTab("circle")}
                 className="grid h-10 w-10 place-items-center rounded-full bg-[#27231a] text-sm font-black text-[#fff8e8]"
                 aria-label="Circle settings"
@@ -463,6 +479,23 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
       )}
       {showInvite && data?.circle && (
         <InviteModal circle={data.circle} onClose={() => setShowInvite(false)} />
+      )}
+      {showActivity && data?.circle && (
+        <ActivityModal
+          memories={data.memories}
+          onClose={() => setShowActivity(false)}
+          onOpen={async (memory) => {
+            await fetch("/api/notifications", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ memoryId: memory.id }),
+            });
+            setSelectedMemory(memory);
+            setShowActivity(false);
+            setTab("memories");
+            await load(data.circle!.id);
+          }}
+        />
       )}
     </main>
   );
@@ -744,6 +777,36 @@ function InviteModal({ circle, onClose }: { circle: Circle; onClose: () => void 
   const inviteUrl = `${typeof window === "undefined" ? "" : window.location.origin}/?join=${circle.inviteCode}`;
   const inviteText = `Join my private Kinwhim circle “${circle.name}”. One selfie a day, one shared little world. ${inviteUrl}`;
   return <Modal onClose={onClose}><div className="flex justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-widest text-[#b75d3e]">Bring the crew</p><h2 className="mt-2 font-serif text-4xl font-black">Pass the secret knock.</h2></div><CloseButton onClick={onClose} /></div><div className="mt-7 rounded-[26px] bg-[#242117] p-7 text-center text-[#fff8e8]"><p className="text-xs font-black uppercase tracking-[.2em] text-[#f5d98b]">Invite code</p><p className="mt-3 font-mono text-4xl font-black tracking-[.12em]">{circle.inviteCode}</p></div><button onClick={async () => { await navigator.clipboard.writeText(inviteText); setCopied(true); }} className="kw-primary mt-5 w-full justify-center">{copied ? <Check size={18} /> : <Copy size={18} />}{copied ? "Link copied—send it anywhere" : "Copy smart invite link"}</button><p className="mt-4 text-center text-xs leading-relaxed text-[#6d675a]">The link fills in the code automatically. Friends still need permission to open this private site.</p></Modal>;
+}
+
+function ActivityModal({ memories, onClose, onOpen }: {
+  memories: Memory[];
+  onClose: () => void;
+  onOpen: (memory: Memory) => Promise<void>;
+}) {
+  return (
+    <Modal onClose={onClose}>
+      <div className="flex items-start justify-between gap-4">
+        <div><p className="text-xs font-black uppercase tracking-widest text-[#b75d3e]">Your circle moved</p><h2 className="mt-2 font-serif text-4xl font-black">Fresh little worlds.</h2></div>
+        <CloseButton onClick={onClose} />
+      </div>
+      <div className="mt-6 space-y-3">
+        {memories.length ? memories.slice(0, 8).map((memory) => (
+          <button
+            key={memory.id}
+            onClick={() => void onOpen(memory)}
+            className="flex w-full items-center gap-4 rounded-[22px] border border-[#29251d]/10 bg-white/50 p-3 text-left transition hover:-translate-y-0.5 hover:bg-white/80"
+          >
+            <img src={memory.mediaUrl} alt="" className="h-16 w-16 rounded-2xl object-cover" />
+            <span className="min-w-0 flex-1"><strong className="block truncate font-serif text-lg">{memory.title}</strong><small className="mt-1 block text-[#6d675a]">{prettyDate(memory.day)} · tap to open</small></span>
+            {!memory.isRead && <span className="h-3 w-3 shrink-0 rounded-full bg-[#ef8354]" aria-label="Unread" />}
+          </button>
+        )) : (
+          <div className="rounded-[22px] bg-[#eae2d4] p-6 text-center"><Bell className="mx-auto" /><p className="mt-3 font-black">Quiet for now.</p><p className="mt-1 text-sm text-[#6d675a]">New memories will appear here after reveal time.</p></div>
+        )}
+      </div>
+    </Modal>
+  );
 }
 
 function Modal({ children, onClose, wide = false }: { children: React.ReactNode; onClose?: () => void; wide?: boolean }) {

@@ -113,3 +113,19 @@ export const generationJobs = sqliteTable(
     ),
   ],
 );
+
+export const notificationReads = sqliteTable(
+  "notification_reads",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    memoryId: text("memory_id").notNull(),
+    readAt: integer("read_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("notification_reads_user_memory_unique").on(
+      table.userId,
+      table.memoryId,
+    ),
+  ],
+);
