@@ -43,7 +43,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       foregroundImage: "./assets/android-icon-foreground.png",
       monochromeImage: "./assets/android-icon-monochrome.png",
     },
-    blockedPermissions: ["android.permission.RECORD_AUDIO"],
+    // Kinwhim never reads the photo library: picking uses the system Photo Picker and
+    // saving to MediaStore needs no permission on Android 10+.
+    blockedPermissions: [
+      "android.permission.RECORD_AUDIO",
+      "android.permission.READ_MEDIA_IMAGES",
+      "android.permission.READ_MEDIA_VIDEO",
+      "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+    ],
     intentFilters: [
       {
         action: "VIEW",

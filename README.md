@@ -1,4 +1,16 @@
-# vinext-starter
+# Kinwhim
+
+One selfie a day with your closest friends, turned into one shared AI-illustrated world.
+
+- **Web app and API**: this directory (vinext on Cloudflare Workers, with D1 and R2). Sign-in is Apple/Google/email through `lib/auth/`; policy pages live at `/privacy`, `/terms`, `/support`, `/safety`, and `/delete-account`.
+- **iPhone and Android app**: [`mobile/`](mobile) (Expo).
+- **Store launch kit**: [`docs/store/`](docs/store), covering the launch checklist, listings, privacy disclosures, and screenshots.
+
+Server secrets are documented in `cloudflare-env.d.ts`. After pulling, apply new `drizzle/` migrations (see “Local D1 migrations” below).
+
+---
+
+## vinext-starter
 
 A clean full-stack starter running on [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and Drizzle support.
 

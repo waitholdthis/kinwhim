@@ -54,3 +54,20 @@ for (const [name, source] of jobs) {
   await image.toFile(path.join(out, name));
   console.log("wrote", name);
 }
+
+// Store artwork (not bundled in the app).
+const storeDir = path.join(here, "../../docs/store/artwork");
+mkdirSync(storeDir, { recursive: true });
+await sharp(svg({ size: 512, background: PAPER, scale: 0.82 })).flatten({ background: PAPER }).png()
+  .toFile(path.join(storeDir, "play-icon-512.png"));
+const feature = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="500" viewBox="0 0 1024 500">
+  <rect width="1024" height="500" fill="${PAPER}"/>
+  <g transform="translate(70 120) scale(4)">${mark()}</g>
+  <text x="400" y="215" font-family="Georgia, serif" font-weight="900" font-size="76" fill="${INK}" letter-spacing="-3">kinwhim</text>
+  <text x="402" y="290" font-family="Georgia, serif" font-weight="700" font-size="38" fill="${INK}">One selfie. One shared</text>
+  <text x="402" y="338" font-family="Georgia, serif" font-weight="700" font-size="38" fill="${INK}">little world.</text>
+  <rect x="402" y="372" width="250" height="44" rx="22" fill="${CORAL}"/>
+  <text x="427" y="401" font-family="Arial, sans-serif" font-weight="800" font-size="18" fill="${INK}">Private friend circles</text>
+</svg>`);
+await sharp(feature).png().toFile(path.join(storeDir, "play-feature-graphic.png"));
+console.log("wrote store artwork");
