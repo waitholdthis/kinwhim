@@ -14,6 +14,7 @@ import {
   Plus,
   Settings2,
   Save,
+  Share2,
   Sparkles,
   Trash2,
   Users,
@@ -65,6 +66,14 @@ type Dashboard = {
   unreadCount: number;
 };
 
+type MovieAsset = {
+  memoryId: string;
+  blob: Blob;
+  url: string;
+  fileName: string;
+  mimeType: string;
+};
+
 const moods = [
   ["sparkly", "✨"],
   ["sleepy", "☁️"],
@@ -86,8 +95,15 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
   const [showActivity, setShowActivity] = useState(false);
   const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null);
   const [movieProgress, setMovieProgress] = useState(0);
+  const [movieAsset, setMovieAsset] = useState<MovieAsset | null>(null);
   const [joinCode, setJoinCode] = useState<string | null>(null);
   const automaticReveal = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (movieAsset) URL.revokeObjectURL(movieAsset.url);
+    };
+  }, [movieAsset]);
 
   const load = useCallback(async (circleId?: string) => {
     setError(null);
@@ -244,17 +260,44 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
     setError(null);
     try {
       const movie = await renderMiniMovie(memory.mediaUrl, setMovieProgress);
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(movie);
-      link.download = `kinwhim-${memory.day}.webm`;
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+      const extension = movie.type.startsWith("video/mp4") ? "mp4" : "webm";
+      setMovieAsset({
+        memoryId: memory.id,
+        blob: movie,
+        url: URL.createObjectURL(movie),
+        fileName: `kinwhim-${memory.day}.${extension}`,
+        mimeType: movie.type,
+      });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not make the mini movie.");
     } finally {
       setBusy(null);
       setMovieProgress(0);
     }
+  }
+
+  async function shareMovie(asset: MovieAsset) {
+    const file = new File([asset.blob], asset.fileName, { type: asset.mimeType });
+    if (navigator.share && navigator.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({
+          files: [file],
+          title: "A Kinwhim memory",
+          text: "A little world made with my people.",
+        });
+        return;
+      } catch (caught) {
+        if (caught instanceof DOMException && caught.name === "AbortError") return;
+      }
+    }
+    downloadMovie(asset);
+  }
+
+  function downloadMovie(asset: MovieAsset) {
+    const link = document.createElement("a");
+    link.href = asset.url;
+    link.download = asset.fileName;
+    link.click();
   }
 
   if (loading) return <LoadingScreen />;
@@ -422,9 +465,12 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
               selected={selectedMemory}
               busy={busy}
               movieProgress={movieProgress}
+              movieAsset={movieAsset}
               onSelect={setSelectedMemory}
               onReact={react}
               onMovie={makeMovie}
+              onShareMovie={shareMovie}
+              onDownloadMovie={downloadMovie}
             />
           )}
 
@@ -588,14 +634,17 @@ function CircleSwitcher({ circles, selected, onChange }: { circles: Circle[]; se
   );
 }
 
-function MemoryShelf({ memories, selected, busy, movieProgress, onSelect, onReact, onMovie }: {
+function MemoryShelf({ memories, selected, busy, movieProgress, movieAsset, onSelect, onReact, onMovie, onShareMovie, onDownloadMovie }: {
   memories: Memory[];
   selected: Memory | null;
   busy: string | null;
   movieProgress: number;
+  movieAsset: MovieAsset | null;
   onSelect: (memory: Memory | null) => void;
   onReact: (memory: Memory, emoji: string) => void;
   onMovie: (memory: Memory) => void;
+  onShareMovie: (asset: MovieAsset) => void;
+  onDownloadMovie: (asset: MovieAsset) => void;
 }) {
   const featured = selected ?? memories[0];
   if (!featured) {
@@ -605,6 +654,7 @@ function MemoryShelf({ memories, selected, busy, movieProgress, onSelect, onReac
       </div>
     );
   }
+  const featuredMovie = movieAsset?.memoryId === featured.id ? movieAsset : null;
   return (
     <section>
       <div className="grid gap-6 lg:grid-cols-[1.2fr_.8fr]">
@@ -626,11 +676,21 @@ function MemoryShelf({ memories, selected, busy, movieProgress, onSelect, onReac
           <div className="rounded-[28px] border border-[#29251d]/10 bg-[#f5d98b] p-6">
             <Clapperboard size={28} />
             <h3 className="mt-5 font-serif text-3xl font-black">Make it move</h3>
-            <p className="mt-2 text-sm font-medium leading-relaxed text-[#5b5548]">Turn this world into a six-second animated keepsake with a slow cinematic drift and a little confetti.</p>
+            <p className="mt-2 text-sm font-medium leading-relaxed text-[#5b5548]">Turn this world into a six-second animated keepsake with a slow cinematic drift and a little confetti. On iPhone, share it straight to Photos or Messages.</p>
             <button onClick={() => onMovie(featured)} disabled={busy === "movie"} className="kw-primary mt-6 w-full justify-center disabled:opacity-60">
-              {busy === "movie" ? <LoaderCircle className="animate-spin" size={18} /> : <Download size={18} />}
-              {busy === "movie" ? `Rendering ${movieProgress}%` : "Download mini movie"}
+              {busy === "movie" ? <LoaderCircle className="animate-spin" size={18} /> : <Clapperboard size={18} />}
+              {busy === "movie" ? `Rendering ${movieProgress}%` : featuredMovie ? "Remake mini movie" : "Make mini movie"}
             </button>
+            {featuredMovie && (
+              <div className="mt-5 rounded-[22px] bg-[#242117] p-3 text-[#fff8e8]">
+                <video src={featuredMovie.url} controls playsInline className="aspect-square w-full rounded-[15px] object-cover" />
+                <p className="mt-3 px-1 text-xs font-bold text-white/60">{featuredMovie.mimeType.startsWith("video/mp4") ? "iPhone-ready MP4" : "Web video"} · preview it, then save or share.</p>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <button onClick={() => onShareMovie(featuredMovie)} className="flex items-center justify-center gap-2 rounded-full bg-[#ef8354] px-3 py-2.5 text-sm font-black text-[#242117]"><Share2 size={16} /> Share / Save</button>
+                  <button onClick={() => onDownloadMovie(featuredMovie)} className="flex items-center justify-center gap-2 rounded-full bg-white/10 px-3 py-2.5 text-sm font-black"><Download size={16} /> Download</button>
+                </div>
+              </div>
+            )}
           </div>
           <div className="rounded-[28px] border border-[#29251d]/10 bg-white/45 p-6">
             <p className="text-xs font-black uppercase tracking-widest text-[#b75d3e]">Memory promise</p>
@@ -820,13 +880,20 @@ async function renderMiniMovie(imageUrl: string, onProgress: (value: number) => 
   if (!("MediaRecorder" in window)) throw new Error("Mini movies need a modern browser.");
   const response = await fetch(imageUrl);
   const blob = await response.blob();
-  const image = await createImageBitmap(blob);
+  const image = await decodeCanvasImage(blob);
   const canvas = document.createElement("canvas");
   canvas.width = 720; canvas.height = 720;
   const context = canvas.getContext("2d");
   if (!context) throw new Error("Your browser could not open the movie canvas.");
   const stream = canvas.captureStream(30);
-  const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9") ? "video/webm;codecs=vp9" : "video/webm";
+  const mimeType = [
+    "video/mp4;codecs=avc1.42E01E",
+    "video/mp4;codecs=h264",
+    "video/mp4",
+    "video/webm;codecs=vp9",
+    "video/webm",
+  ].find((type) => MediaRecorder.isTypeSupported(type));
+  if (!mimeType) throw new Error("This browser cannot make a mini movie yet.");
   const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5_000_000 });
   const chunks: Blob[] = [];
   recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
@@ -851,8 +918,27 @@ async function renderMiniMovie(imageUrl: string, onProgress: (value: number) => 
     }
     requestAnimationFrame(frame);
   });
-  recorder.stop(); image.close(); stream.getTracks().forEach((track) => track.stop());
+  recorder.stop();
+  if (image instanceof ImageBitmap) image.close();
+  stream.getTracks().forEach((track) => track.stop());
   return finished;
+}
+
+async function decodeCanvasImage(blob: Blob): Promise<ImageBitmap | HTMLImageElement> {
+  try {
+    return await createImageBitmap(blob);
+  } catch {
+    const url = URL.createObjectURL(blob);
+    try {
+      const image = new Image();
+      image.decoding = "async";
+      image.src = url;
+      await image.decode();
+      return image;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
 }
 
 function initials(name: string) { return name.split(/[\s@]+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "K"; }
