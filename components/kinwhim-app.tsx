@@ -8,6 +8,11 @@ import {
   Clapperboard,
   Copy,
   Download,
+  Ellipsis,
+  Flag,
+  Ban,
+  UserMinus,
+  LogOut,
   Image as ImageIcon,
   LoaderCircle,
   LockKeyhole,
@@ -56,7 +61,28 @@ type Memory = {
   createdAt: number;
   reactions: string[];
   isRead: boolean;
+  featuresViewer: boolean;
 };
+
+type ReportTarget = {
+  targetType: "memory" | "photo" | "user";
+  targetId: string;
+  label: string;
+  canBlock: boolean;
+};
+
+// Mirrors REPORT_REASONS in lib/policies.ts.
+const reportReasons = [
+  ["nudity_or_sexual", "Nudity or sexual content"],
+  ["harassment_or_bullying", "Harassment or bullying"],
+  ["hate_or_violence", "Hate, threats, or violence"],
+  ["self_harm", "Self-harm or suicide"],
+  ["minor_safety", "Child safety concern"],
+  ["impersonation", "Pretending to be someone else"],
+  ["not_consented", "A photo of me I didn’t agree to"],
+  ["spam", "Spam"],
+  ["other", "Something else"],
+] as const;
 
 type Dashboard = {
   viewer: { id: string; name: string; email: string; needsTerms: boolean };
@@ -101,6 +127,9 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
   const [movieProgress, setMovieProgress] = useState(0);
   const [movieAsset, setMovieAsset] = useState<MovieAsset | null>(null);
   const [joinCode, setJoinCode] = useState<string | null>(null);
+  const [memberMenu, setMemberMenu] = useState<Member | null>(null);
+  const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const automaticReveal = useRef<string | null>(null);
 
   useEffect(() => {
@@ -277,6 +306,28 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
     if (data?.circle) await load(data.circle.id);
   }
 
+  // Report, block, remove, leave, and delete all share this request shape.
+  async function safetyRequest(path: string, method: string, body: unknown, success?: string) {
+    setError(null);
+    const response = await fetch(path, {
+      method,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const payload = (await response.json().catch(() => ({}))) as { error?: string };
+    if (!response.ok) throw new Error(payload.error || "That didn’t work.");
+    if (success) setNotice(success);
+    await load(data?.circle?.id);
+  }
+
+  async function runSafety(action: () => Promise<void>) {
+    try {
+      await action();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "That didn’t work.");
+    }
+  }
+
   async function makeMovie(memory: Memory) {
     setBusy("movie");
     setMovieProgress(1);
@@ -385,6 +436,7 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
           </div>
 
           {error && <ErrorToast message={error} onClose={() => setError(null)} />}
+          {!error && notice && <ErrorToast tone="ok" message={notice} onClose={() => setNotice(null)} />}
 
           {tab === "today" && (
             <section className="grid gap-5 lg:grid-cols-[1.45fr_0.8fr]">
@@ -404,7 +456,12 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
 
                 <div className="relative mt-8 grid grid-cols-3 gap-3 sm:grid-cols-5">
                   {data.members.map((member, index) => (
-                    <MemberTile key={member.id} member={member} index={index} />
+                    <MemberTile
+                      key={member.id}
+                      member={member}
+                      index={index}
+                      onMenu={member.id === data.viewer.id ? undefined : () => setMemberMenu(member)}
+                    />
                   ))}
                   <button
                     onClick={() => setShowInvite(true)}
@@ -494,6 +551,17 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
               onMovie={makeMovie}
               onShareMovie={shareMovie}
               onDownloadMovie={downloadMovie}
+              canDelete={(memory) => data.circle?.ownerId === data.viewer.id || memory.featuresViewer}
+              onReport={(memory) =>
+                setReportTarget({ targetType: "memory", targetId: memory.id, label: "this memory", canBlock: false })
+              }
+              onDelete={(memory) => {
+                if (!window.confirm("Delete this memory for everyone in the circle? This can’t be undone.")) return;
+                void runSafety(async () => {
+                  await safetyRequest(`/api/memories/${encodeURIComponent(memory.id)}`, "DELETE", {}, "Memory deleted.");
+                  setSelectedMemory(null);
+                });
+              }}
             />
           )}
 
@@ -501,11 +569,25 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
             <CirclePanel
               circle={data.circle}
               members={data.members}
+              viewerId={data.viewer.id}
               canEdit={data.circle.ownerId === data.viewer.id}
               saving={busy === "settings"}
               onInvite={() => setShowInvite(true)}
               onNewCircle={() => setShowOnboarding(true)}
               onSave={saveCircleSettings}
+              onMemberMenu={setMemberMenu}
+              onLeave={() => {
+                const circle = data.circle!;
+                const message =
+                  circle.ownerId === data.viewer.id
+                    ? "Leave this circle? Your selfies here are deleted and the next longest-standing member becomes keeper. If you’re the last one, the circle and its memories are deleted."
+                    : "Leave this circle? Your selfies here are deleted. You’ll need a new invite to come back.";
+                if (!window.confirm(message)) return;
+                void runSafety(async () => {
+                  await safetyRequest("/api/circles/members", "DELETE", { circleId: circle.id, userId: data.viewer.id }, `You left ${circle.name}.`);
+                  setTab("today");
+                });
+              }}
             />
           )}
           {tab === "circle" && (
@@ -552,6 +634,49 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
             await load(data.circle!.id);
           }}
           onError={setError}
+        />
+      )}
+      {memberMenu && data?.circle && (
+        <MemberMenuModal
+          member={memberMenu}
+          isKeeper={data.circle.ownerId === data.viewer.id}
+          onClose={() => setMemberMenu(null)}
+          onReport={(target) => {
+            setMemberMenu(null);
+            setReportTarget(target);
+          }}
+          onBlock={(block) => {
+            const member = memberMenu;
+            if (block && !window.confirm(`Block ${member.name}? You won’t see each other’s selfies or appear together in new memories. They aren’t notified.`)) return;
+            setMemberMenu(null);
+            void runSafety(() =>
+              safetyRequest("/api/blocks", block ? "POST" : "DELETE", { userId: member.id }, block ? `${member.name} is blocked.` : `${member.name} is unblocked.`),
+            );
+          }}
+          onRemove={() => {
+            const member = memberMenu;
+            if (!window.confirm(`Remove ${member.name} from the circle? Their selfies here are deleted and the invite code is reset.`)) return;
+            setMemberMenu(null);
+            void runSafety(() =>
+              safetyRequest("/api/circles/members", "DELETE", { circleId: data.circle!.id, userId: member.id }, `${member.name} was removed. Share the new invite code with anyone still joining.`),
+            );
+          }}
+        />
+      )}
+      {reportTarget && (
+        <ReportModal
+          target={reportTarget}
+          onClose={() => setReportTarget(null)}
+          onSubmit={async (reason, details, block) => {
+            await safetyRequest(
+              "/api/reports",
+              "POST",
+              { targetType: reportTarget.targetType, targetId: reportTarget.targetId, reason, details, block },
+              `Thanks for telling us. We review every report within 24 hours.${block ? " You’ve also blocked this person." : ""}`,
+            );
+            if (reportTarget.targetType === "memory") setSelectedMemory(null);
+            setReportTarget(null);
+          }}
         />
       )}
       {showTerms && (
@@ -635,7 +760,7 @@ function EmptyHome({ name, onStart, error }: { name: string; onStart: () => void
   );
 }
 
-function MemberTile({ member, index }: { member: Member; index: number }) {
+function MemberTile({ member, index, onMenu }: { member: Member; index: number; onMenu?: () => void }) {
   const colors = ["#ef8354", "#f5d98b", "#c9d9c3", "#c6b9dc", "#e7b4a2"];
   return (
     <div className="min-w-0">
@@ -644,12 +769,21 @@ function MemberTile({ member, index }: { member: Member; index: number }) {
           <img src={member.photoUrl} alt={`${member.name}'s selfie`} className="h-full w-full object-cover" />
         ) : (
           <div className="grid h-full place-items-center text-2xl font-black text-[#242117]" style={{ background: colors[index % colors.length] }}>
-            {initials(member.name)}
+            {member.blocked ? <Ban size={24} /> : initials(member.name)}
           </div>
         )}
         <span className={`absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full text-[11px] ${member.checkedIn ? "bg-[#d8f3dc] text-[#245a2d]" : "bg-[#242117]/70 text-white"}`}>
           {member.checkedIn ? <Check size={13} strokeWidth={3} /> : "…"}
         </span>
+        {onMenu && (
+          <button
+            onClick={onMenu}
+            aria-label={`Options for ${member.name}: report or block`}
+            className="absolute left-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-[#242117]/70 text-white transition hover:bg-[#242117]"
+          >
+            <Ellipsis size={15} />
+          </button>
+        )}
       </div>
       <p className="mt-2 truncate text-center text-xs font-bold text-[#fff8e8]/75">{firstName(member.name)}</p>
     </div>
@@ -668,7 +802,7 @@ function CircleSwitcher({ circles, selected, onChange }: { circles: Circle[]; se
   );
 }
 
-function MemoryShelf({ memories, selected, busy, movieProgress, movieAsset, onSelect, onReact, onMovie, onShareMovie, onDownloadMovie }: {
+function MemoryShelf({ memories, selected, busy, movieProgress, movieAsset, onSelect, onReact, onMovie, onShareMovie, onDownloadMovie, canDelete, onReport, onDelete }: {
   memories: Memory[];
   selected: Memory | null;
   busy: string | null;
@@ -679,6 +813,9 @@ function MemoryShelf({ memories, selected, busy, movieProgress, movieAsset, onSe
   onMovie: (memory: Memory) => void;
   onShareMovie: (asset: MovieAsset) => void;
   onDownloadMovie: (asset: MovieAsset) => void;
+  canDelete: (memory: Memory) => boolean;
+  onReport: (memory: Memory) => void;
+  onDelete: (memory: Memory) => void;
 }) {
   const featured = selected ?? memories[0];
   if (!featured) {
@@ -728,7 +865,17 @@ function MemoryShelf({ memories, selected, busy, movieProgress, movieAsset, onSe
           </div>
           <div className="rounded-[28px] border border-[#29251d]/10 bg-white/45 p-6">
             <p className="text-xs font-black uppercase tracking-widest text-[#b75d3e]">Memory promise</p>
-            <p className="mt-3 text-sm font-medium leading-relaxed text-[#5b5548]">Only your circle can open these images. Original selfies stay private to the group and can be replaced by their owner.</p>
+            <p className="mt-3 text-sm font-medium leading-relaxed text-[#5b5548]">Only your circle can open these images. Original selfies stay private to the group and are deleted after 14 days.</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button onClick={() => onReport(featured)} className="flex items-center gap-2 rounded-full border border-[#29251d]/15 px-4 py-2 text-sm font-bold">
+                <Flag size={15} /> Report memory
+              </button>
+              {canDelete(featured) && (
+                <button onClick={() => onDelete(featured)} className="flex items-center gap-2 rounded-full border border-[#b23b2a]/30 px-4 py-2 text-sm font-bold text-[#a53b2c]">
+                  <Trash2 size={15} /> Delete for everyone
+                </button>
+              )}
+            </div>
           </div>
         </aside>
       </div>
@@ -745,21 +892,37 @@ function MemoryShelf({ memories, selected, busy, movieProgress, movieAsset, onSe
   );
 }
 
-function CirclePanel({ circle, members, canEdit, saving, onInvite, onNewCircle, onSave }: {
+function CirclePanel({ circle, members, viewerId, canEdit, saving, onInvite, onNewCircle, onSave, onMemberMenu, onLeave }: {
   circle: Circle;
   members: Member[];
+  viewerId: string;
   canEdit: boolean;
   saving: boolean;
   onInvite: () => void;
   onNewCircle: () => void;
   onSave: (settings: { name: string; revealHour: number; timezone: string; style: string }) => Promise<void>;
+  onMemberMenu: (member: Member) => void;
+  onLeave: () => void;
 }) {
   return (
     <section className="mx-auto max-w-3xl">
       <div className="rounded-[34px] bg-[#242117] p-7 text-[#fff8e8] sm:p-10">
         <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-widest text-[#f5d98b]">Your circle</p><h2 className="mt-2 font-serif text-5xl font-black">{circle.name}</h2></div><Settings2 /></div>
         <div className="mt-8 grid gap-3 sm:grid-cols-2">
-          {members.map((member) => <div key={member.id} className="flex items-center gap-3 rounded-2xl bg-white/8 p-3"><span className="grid h-11 w-11 place-items-center rounded-full bg-[#ef8354] font-black text-[#242117]">{initials(member.name)}</span><div className="min-w-0"><p className="truncate font-black">{member.name}</p><p className="text-xs text-white/55">{member.role === "owner" ? "Circle keeper" : "Friend"}</p></div></div>)}
+          {members.map((member) => (
+            <div key={member.id} className="flex items-center gap-3 rounded-2xl bg-white/8 p-3">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#ef8354] font-black text-[#242117]">{initials(member.name)}</span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-black">{member.name}{member.id === viewerId ? " (you)" : ""}</p>
+                <p className="text-xs text-white/55">{member.role === "owner" ? "Circle keeper" : "Friend"}{member.blocked ? " · Blocked" : ""}</p>
+              </div>
+              {member.id !== viewerId && (
+                <button onClick={() => onMemberMenu(member)} aria-label={`Options for ${member.name}`} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/10 transition hover:bg-white/20">
+                  <Ellipsis size={16} />
+                </button>
+              )}
+            </div>
+          ))}
         </div>
         <button onClick={onInvite} className="kw-primary kw-primary-light mt-7"><Plus size={18} /> Invite with {circle.inviteCode}</button>
       </div>
@@ -767,6 +930,9 @@ function CirclePanel({ circle, members, canEdit, saving, onInvite, onNewCircle, 
         <div className="rounded-[26px] border border-[#29251d]/10 bg-white/45 p-6"><p className="text-xs font-black uppercase tracking-widest text-[#b75d3e]">Daily rhythm</p><h3 className="mt-3 font-serif text-2xl font-black">Reveal at {formatHour(circle.revealHour)}</h3><p className="mt-2 text-sm text-[#6d675a]">{circle.style} · {circle.timezone.replaceAll("_", " ")}</p></div>
         <button onClick={onNewCircle} className="rounded-[26px] border border-dashed border-[#29251d]/20 bg-white/25 p-6 text-left transition hover:bg-white/50"><Plus /><h3 className="mt-4 font-serif text-2xl font-black">Add another circle</h3><p className="mt-2 text-sm text-[#6d675a]">Family, college friends, cousins—each gets its own private world.</p></button>
       </div>
+      <button onClick={onLeave} className="mt-5 flex items-center gap-2 rounded-full border border-[#b23b2a]/30 px-5 py-2.5 text-sm font-bold text-[#a53b2c]">
+        <LogOut size={16} /> Leave this circle
+      </button>
       {canEdit && (
         <form
           className="mt-5 rounded-[28px] border border-[#29251d]/10 bg-[#fff8e8]/70 p-6 sm:p-8"
@@ -903,6 +1069,108 @@ function ActivityModal({ memories, onClose, onOpen }: {
   );
 }
 
+function MemberMenuModal({ member, isKeeper, onClose, onReport, onBlock, onRemove }: {
+  member: Member;
+  isKeeper: boolean;
+  onClose: () => void;
+  onReport: (target: ReportTarget) => void;
+  onBlock: (block: boolean) => void;
+  onRemove: () => void;
+}) {
+  const item = "flex w-full items-center gap-3 rounded-2xl bg-white/60 px-4 py-3.5 text-left font-bold transition hover:bg-white";
+  return (
+    <Modal onClose={onClose}>
+      <div className="flex justify-between gap-4">
+        <div>
+          <p className="text-xs font-black uppercase tracking-widest text-[#b75d3e]">{member.role === "owner" ? "Circle keeper" : "Friend"}</p>
+          <h2 className="mt-2 font-serif text-4xl font-black">{member.name}</h2>
+        </div>
+        <CloseButton onClick={onClose} />
+      </div>
+      <div className="mt-6 space-y-2">
+        {member.checkinId && (
+          <button className={item} onClick={() => onReport({ targetType: "photo", targetId: member.checkinId!, label: `${firstName(member.name)}’s selfie`, canBlock: true })}>
+            <Flag size={18} /> Report today’s selfie
+          </button>
+        )}
+        <button className={item} onClick={() => onReport({ targetType: "user", targetId: member.id, label: member.name, canBlock: true })}>
+          <Flag size={18} /> Report {firstName(member.name)}
+        </button>
+        <button className={item} onClick={() => onBlock(!member.blocked)}>
+          <Ban size={18} /> {member.blocked ? `Unblock ${firstName(member.name)}` : `Block ${firstName(member.name)}`}
+        </button>
+        {isKeeper && (
+          <button className={`${item} text-[#a53b2c]`} onClick={onRemove}>
+            <UserMinus size={18} /> Remove from circle
+          </button>
+        )}
+      </div>
+      <p className="mt-5 text-xs leading-relaxed text-[#6d675a]">
+        Reports go to the Kinwhim safety team, not to {firstName(member.name)}. Blocking hides your selfies from each other and keeps you out of new memories together.
+      </p>
+    </Modal>
+  );
+}
+
+function ReportModal({ target, onClose, onSubmit }: {
+  target: ReportTarget;
+  onClose: () => void;
+  onSubmit: (reason: string, details: string, block: boolean) => Promise<void>;
+}) {
+  const [reason, setReason] = useState<string | null>(null);
+  const [details, setDetails] = useState("");
+  const [block, setBlock] = useState(target.canBlock);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <Modal onClose={onClose}>
+      <div className="flex justify-between gap-4">
+        <div>
+          <p className="text-xs font-black uppercase tracking-widest text-[#b75d3e]">Report</p>
+          <h2 className="mt-2 font-serif text-3xl font-black">What’s wrong with {target.label}?</h2>
+        </div>
+        <CloseButton onClick={onClose} />
+      </div>
+      <div className="mt-5 grid gap-2" role="radiogroup">
+        {reportReasons.map(([value, label]) => (
+          <button
+            key={value}
+            role="radio"
+            aria-checked={reason === value}
+            onClick={() => setReason(value)}
+            className={`rounded-2xl border px-4 py-3 text-left text-sm font-bold transition ${reason === value ? "border-[#242117] bg-[#242117] text-white" : "border-[#29251d]/12 bg-white/60 hover:bg-white"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <textarea
+        value={details}
+        onChange={(event) => setDetails(event.target.value.slice(0, 1000))}
+        placeholder="Anything else we should know? (optional)"
+        className="kw-input mt-4 min-h-24"
+      />
+      {target.canBlock && (
+        <label className="mt-4 flex items-center gap-3 text-sm font-bold">
+          <input type="checkbox" checked={block} onChange={(event) => setBlock(event.target.checked)} className="h-4 w-4" /> Also block this person
+        </label>
+      )}
+      {error && <p className="mt-4 font-bold text-[#b23b2a]">{error}</p>}
+      <button
+        disabled={!reason || sending}
+        onClick={async () => {
+          setSending(true);
+          setError(null);
+          try { await onSubmit(reason!, details, target.canBlock && block); } catch (caught) { setError(caught instanceof Error ? caught.message : "Couldn’t send the report."); } finally { setSending(false); }
+        }}
+        className="mt-5 flex w-full items-center justify-center gap-2 rounded-full bg-[#b23b2a] px-5 py-3.5 text-sm font-black text-white disabled:opacity-45"
+      >
+        {sending ? <LoaderCircle className="animate-spin" size={18} /> : <Flag size={18} />} Send report
+      </button>
+    </Modal>
+  );
+}
+
 function TermsModal({ onClose, onAccept }: { onClose: () => void; onAccept: () => Promise<void> }) {
   const [agreed, setAgreed] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -949,7 +1217,7 @@ function Modal({ children, onClose, wide = false }: { children: React.ReactNode;
 }
 function CloseButton({ onClick }: { onClick: () => void }) { return <button onClick={onClick} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#e8dfd1]" aria-label="Close"><X size={19} /></button>; }
 function NavButton({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) { return <button onClick={onClick} className={`flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-black transition ${active ? "bg-[#fff8e8] text-[#242117]" : "text-white/65 hover:text-white"}`}>{icon}<span className={active ? "inline" : "hidden sm:inline"}>{label}</span></button>; }
-function ErrorToast({ message, onClose }: { message: string; onClose: () => void }) { return <div className="fixed left-1/2 top-24 z-50 flex w-[min(92vw,520px)] -translate-x-1/2 items-center justify-between gap-3 rounded-2xl bg-[#b23b2a] px-5 py-4 font-bold text-white shadow-2xl"><span>{message}</span><button onClick={onClose}><X size={18} /></button></div>; }
+function ErrorToast({ message, onClose, tone = "error" }: { message: string; onClose: () => void; tone?: "error" | "ok" }) { return <div role={tone === "error" ? "alert" : "status"} className={`fixed left-1/2 top-24 z-50 flex w-[min(92vw,520px)] -translate-x-1/2 items-center justify-between gap-3 rounded-2xl px-5 py-4 font-bold text-white shadow-2xl ${tone === "error" ? "bg-[#b23b2a]" : "bg-[#3f5d42]"}`}><span>{message}</span><button onClick={onClose}><X size={18} /></button></div>; }
 
 async function renderMiniMovie(imageUrl: string, onProgress: (value: number) => void) {
   if (!("MediaRecorder" in window)) throw new Error("Mini movies need a modern browser.");

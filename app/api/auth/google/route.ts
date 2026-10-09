@@ -13,7 +13,7 @@ export async function POST(request: Request) {
     if (!body.idToken) {
       return Response.json({ error: "Google didn’t send a sign-in token." }, { status: 400 });
     }
-    const audiences = splitList(env.GOOGLE_CLIENT_IDS);
+    const audiences = [...splitList(env.GOOGLE_CLIENT_IDS), ...splitList(env.GOOGLE_WEB_CLIENT_ID)];
     if (!audiences.length) {
       return Response.json({ error: "Google sign-in isn’t set up yet." }, { status: 503 });
     }

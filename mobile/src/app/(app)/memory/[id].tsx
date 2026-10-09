@@ -2,6 +2,7 @@ import * as Haptics from "expo-haptics";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { MiniMovie } from "@/components/mini-movie";
 import { AuthImage, Body, Button, ErrorBanner, Eyebrow, Title } from "@/components/ui";
 import { confirm, showActions } from "@/lib/actions";
 import { api, errorMessage } from "@/lib/api";
@@ -128,6 +129,7 @@ export default function MemoryScreen() {
           <Button label="Save to Photos" icon="⤓" busy={busy === "save"} onPress={() => void withFile("save")} style={{ flex: 1 }} />
           <Button label="Share" icon="↗" variant="ghost" busy={busy === "share"} onPress={() => void withFile("share")} style={{ flex: 1 }} />
         </View>
+        <MiniMovie mediaUrl={memory.mediaUrl} day={memory.day} />
       </ScrollView>
     </>
   );

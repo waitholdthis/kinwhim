@@ -1,9 +1,10 @@
 "use client";
 
-import { LoaderCircle, LogOut, Trash2 } from "lucide-react";
+import { Ban, LoaderCircle, LogOut, Trash2 } from "lucide-react";
 import { useState } from "react";
 
-export function AccountPanel({ name, email }: { name: string; email: string }) {
+export function AccountPanel({ name, email, blocked: initialBlocked }: { name: string; email: string; blocked: Array<{ id: string; name: string }> }) {
+  const [blocked, setBlocked] = useState(initialBlocked);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [confirmText, setConfirmText] = useState("");
@@ -38,6 +39,34 @@ export function AccountPanel({ name, email }: { name: string; email: string }) {
         >
           {busy === "logout" ? <LoaderCircle className="animate-spin" size={16} /> : <LogOut size={16} />} Sign out
         </button>
+      </section>
+
+      <section className="rounded-[28px] bg-white/60 p-6">
+        <h2 className="font-serif text-2xl font-black">Blocked people</h2>
+        <p className="mt-2 text-sm leading-relaxed text-[#5b5548]">
+          Blocked people can’t see your selfies, you can’t see theirs, and you won’t appear together in new memories.
+        </p>
+        {blocked.length ? (
+          <ul className="mt-4 divide-y divide-[#29251d]/10">
+            {blocked.map((person) => (
+              <li key={person.id} className="flex items-center justify-between gap-3 py-3">
+                <span className="flex items-center gap-2 font-bold"><Ban size={16} /> {person.name}</span>
+                <button
+                  className="rounded-full border border-[#29251d]/15 px-4 py-1.5 text-sm font-bold"
+                  onClick={async () => {
+                    if (await call("/api/blocks", { method: "DELETE", body: JSON.stringify({ userId: person.id }) }, `unblock-${person.id}`)) {
+                      setBlocked((current) => current.filter((item) => item.id !== person.id));
+                    }
+                  }}
+                >
+                  {busy === `unblock-${person.id}` ? "…" : "Unblock"}
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-4 text-sm font-bold text-[#6d675a]">You haven’t blocked anyone.</p>
+        )}
       </section>
 
       <section className="rounded-[28px] bg-white/60 p-6">

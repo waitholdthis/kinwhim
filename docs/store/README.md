@@ -17,7 +17,8 @@ Everything needed to get Kinwhim into the App Store, then Google Play. Copy-read
 | App ID `app.kinwhim` with Sign in with Apple, Push Notifications, Associated Domains | Certificates, IDs & Profiles | `APPLE_CLIENT_IDS=app.kinwhim`, `APPLE_APP_IDS=<TEAMID>.app.kinwhim` |
 | Sign in with Apple key (.p8) | Keys | `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY` (needed to revoke tokens on account deletion) |
 | APNs key | Keys, or let `eas credentials` create it | uploaded to EAS |
-| Google OAuth clients: Web, iOS, Android | Google Cloud Console → Credentials | `GOOGLE_CLIENT_IDS` (all three) and the mobile `EXPO_PUBLIC_GOOGLE_*` values |
+| Services ID for the website (e.g. `app.kinwhim.web`) with Sign in with Apple; domain `kinwhim.app`, return URL `https://kinwhim.app/api/auth/apple` | Identifiers → Services IDs | `APPLE_WEB_SERVICES_ID` |
+| Google OAuth clients: Web, iOS, Android. On the Web client, add `https://kinwhim.app` as an authorized JavaScript origin | Google Cloud Console → Credentials | `GOOGLE_CLIENT_IDS` (all three), `GOOGLE_WEB_CLIENT_ID` (the Web one, used by the website button), and the mobile `EXPO_PUBLIC_GOOGLE_*` values |
 | Expo project | `npx eas-cli@latest init` in `mobile/` | `EAS_PROJECT_ID` |
 | Resend domain `kinwhim.app` | resend.com | `RESEND_API_KEY`, `EMAIL_FROM` |
 | Google Play Console | play.google.com/console | `ANDROID_CERT_SHA256` from Play App Signing |
@@ -53,8 +54,13 @@ Other server secrets: `OPENAI_API_KEY`, `PUBLIC_APP_URL=https://kinwhim.app`, `M
 - [ ] Child Safety Standards (required for social apps): link `https://kinwhim.app/safety` and name `safety@kinwhim.app` as the contact.
 - [ ] Test **Save to Photos** on Android 10–15 devices. The app deliberately declares no media-read permissions.
 
-## Known gaps
+- [ ] Test the mini movie on a physical Android device and an iPhone: open a memory, tap **Make mini movie**, then Save video and Share video.
 
-- The web app supports email sign-in only. Apple and Google sign-in are in the mobile app.
-- The web “mini movie” isn’t in the native app yet; native shares the still image.
-- Report, block, and remove are built into the native app and API. The web UI has terms, account deletion, and selfie deletion, but not report/block buttons yet.
+## Feature parity
+
+| | Web | iOS / Android |
+| --- | --- | --- |
+| Sign in with Apple, Google, email | ✓ (Apple and Google buttons appear once their client IDs are set) | ✓ |
+| Report a selfie, memory, or person; block; keeper removal; leave circle | ✓ | ✓ |
+| Blocked-people list, delete selfies, delete account | ✓ (`/account`) | ✓ (Settings) |
+| Mini movie (MP4) | ✓ (browser MediaRecorder) | ✓ (native `modules/kinwhim-movie`: AVAssetWriter / MediaCodec) |

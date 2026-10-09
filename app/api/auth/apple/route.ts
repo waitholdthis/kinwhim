@@ -1,8 +1,8 @@
 import { cleanName, signInResponse } from "@/lib/auth/accounts";
-import { APPLE_ISSUER, appleClientIds, exchangeAppleCode } from "@/lib/auth/apple";
+import { APPLE_ISSUER, appleClientIds, appleWebConfig, exchangeAppleCode } from "@/lib/auth/apple";
 import { TokenError, verifyIdToken } from "@/lib/auth/jwt";
 import { parsePlatform, sha256Hex } from "@/lib/auth/session";
-import { jsonError, readJson } from "@/lib/kinwhim-server";
+import { jsonError, publicOrigin, readJson } from "@/lib/kinwhim-server";
 import { allow, clientIp, tooMany } from "@/lib/rate-limit";
 
 type Body = {
@@ -21,7 +21,8 @@ export async function POST(request: Request) {
     if (!body.identityToken) {
       return Response.json({ error: "Apple didn’t send a sign-in token." }, { status: 400 });
     }
-    const audiences = appleClientIds();
+    const web = appleWebConfig(publicOrigin(request));
+    const audiences = [...appleClientIds(), ...(web ? [web.clientId] : [])];
     if (!audiences.length) {
       return Response.json({ error: "Sign in with Apple isn’t set up yet." }, { status: 503 });
     }
@@ -37,7 +38,7 @@ export async function POST(request: Request) {
 
     const clientId = Array.isArray(claims.aud) ? claims.aud[0] : claims.aud!;
     const refreshToken = body.authorizationCode
-      ? await exchangeAppleCode(body.authorizationCode, clientId)
+      ? await exchangeAppleCode(body.authorizationCode, clientId, clientId === web?.clientId ? web.redirectUri : undefined)
       : null;
     // Apple only shares the name on the very first authorization.
     const name = cleanName([body.givenName, body.familyName].filter(Boolean).join(" "));

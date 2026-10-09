@@ -7,6 +7,10 @@ declare namespace Cloudflare {
     PUBLIC_APP_URL?: string;
     // Sign in with Apple: bundle ID (and optional web Services ID), comma separated.
     APPLE_CLIENT_IDS?: string;
+    // Services ID for Sign in with Apple on the website (return URL: <origin>/api/auth/apple).
+    APPLE_WEB_SERVICES_ID?: string;
+    // Google OAuth Web client ID used by the website button (also list it in GOOGLE_CLIENT_IDS).
+    GOOGLE_WEB_CLIENT_ID?: string;
     // Needed to exchange authorization codes and revoke tokens on account deletion.
     APPLE_TEAM_ID?: string;
     APPLE_KEY_ID?: string;

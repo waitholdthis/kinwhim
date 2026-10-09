@@ -2,8 +2,9 @@
 
 import { LoaderCircle, Mail, Sparkles } from "lucide-react";
 import { FormEvent, useState } from "react";
+import { type WebProviderConfig, WebProviders } from "@/components/web-providers";
 
-export function WebSignIn() {
+export function WebSignIn({ providers }: { providers: WebProviderConfig }) {
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [sent, setSent] = useState(false);
@@ -50,8 +51,21 @@ export function WebSignIn() {
           One selfie. One shared little world.
         </h1>
         <p className="mt-4 text-base leading-relaxed text-[#5b5548]">
-          Sign in with your email. Sign in with Apple and Google are in the Kinwhim app.
+          A private daily ritual for the people you never want to drift from.
         </p>
+        <WebProviders
+          config={providers}
+          onError={setError}
+          onToken={async (path, body) => {
+            setError(null);
+            try {
+              await post(path, body);
+              window.location.reload();
+            } catch (caught) {
+              setError(caught instanceof Error ? caught.message : "Sign-in didn’t finish.");
+            }
+          }}
+        />
         <label className="mt-8 block text-xs font-black uppercase tracking-widest text-[#b75d3e]">
           Email
           <input

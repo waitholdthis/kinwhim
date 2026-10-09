@@ -1,0 +1,4 @@
+# Native build output
+android/build/
+android/.cxx/
+ios/build/

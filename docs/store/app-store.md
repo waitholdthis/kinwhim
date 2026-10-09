@@ -40,6 +40,7 @@ The character limits are App Store Connect’s. Counts are in brackets.
 > • A nightly illustrated “memory” starring your whole circle
 > • React with ✨ 😂 🥹 🫶 🔥
 > • Save memories to Photos or share them anywhere
+> • Turn any memory into a six-second mini movie
 > • Choose the reveal time and memory style: whimsical, cinematic, storybook, or scrapbook
 >
 > YOU’RE IN CONTROL
@@ -92,7 +93,7 @@ If the calculated rating is below **13+**, choose 13+ so it matches the Terms’
 >
 > • Sign in: tap “Continue with email”, enter the demo email, then the demo code. Sign in with Apple and Google are also available.
 > • Check in: Today → “Take today’s selfie”. The first upload shows our Terms and asks for explicit permission to send opted-in selfies to OpenAI’s image API.
-> • Memories: the Memories tab → open a memory → Save to Photos or Share. ••• → Report or Delete.
+> • Memories: the Memories tab → open a memory → Save to Photos or Share, or “Make mini movie” for an MP4. ••• → Report or Delete.
 > • Report/block a person: Today → long-press a friend’s photo, or Circle → tap a member → Report / Block / Remove (keeper).
 > • Delete account: Today → ⚙︎ Settings → Delete account. Deletion is immediate and permanent, and revokes Sign in with Apple.
 > • Moderation: reports reach our safety team by email and are reviewed within 24 hours; we can remove content and suspend accounts. Published standards: https://kinwhim.app/safety

@@ -22,7 +22,8 @@ async function clientSecret(clientId: string) {
 
 // Exchanges the one-time authorization code for a refresh token, which Apple
 // requires us to revoke when the person deletes their account.
-export async function exchangeAppleCode(code: string, clientId: string) {
+// Codes from the web flow must be exchanged with the same redirect URI.
+export async function exchangeAppleCode(code: string, clientId: string, redirectUri?: string) {
   if (!canTalkToApple()) return null;
   const response = await fetch(`${APPLE_ISSUER}/auth/token`, {
     method: "POST",
@@ -32,6 +33,7 @@ export async function exchangeAppleCode(code: string, clientId: string) {
       client_secret: await clientSecret(clientId),
       code,
       grant_type: "authorization_code",
+      ...(redirectUri ? { redirect_uri: redirectUri } : {}),
     }),
   });
   if (!response.ok) {
@@ -57,6 +59,14 @@ export async function revokeAppleToken(stored: string) {
     }),
   });
   if (!response.ok) console.error("Apple token revoke failed", response.status);
+}
+
+// The Services ID used by Sign in with Apple on the website, and the return URL
+// registered for it in the Apple Developer portal.
+export function appleWebConfig(origin: string) {
+  return env.APPLE_WEB_SERVICES_ID
+    ? { clientId: env.APPLE_WEB_SERVICES_ID, redirectUri: `${origin}/api/auth/apple` }
+    : null;
 }
 
 export function splitList(value: string | undefined) {

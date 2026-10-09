@@ -3,6 +3,7 @@ import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import * as MediaLibrary from "expo-media-library";
 import * as Sharing from "expo-sharing";
 import { Platform } from "react-native";
+import { renderMiniMovie } from "../../modules/kinwhim-movie";
 import { absoluteUrl, authHeaders } from "@/lib/api";
 
 // Memory images are private, so fetch them with the session and keep a local
@@ -31,12 +32,24 @@ export async function saveToPhotos(localUri: string) {
 }
 
 export async function shareImage(localUri: string) {
+  await shareFile(localUri, "image/png", "public.png");
+}
+
+export async function shareMovie(localUri: string) {
+  await shareFile(localUri, "video/mp4", "public.mpeg-4");
+}
+
+async function shareFile(localUri: string, mimeType: string, UTI: string) {
   if (!(await Sharing.isAvailableAsync())) throw new Error("Sharing isn’t available on this device.");
-  await Sharing.shareAsync(localUri, {
-    mimeType: "image/png",
-    UTI: "public.png",
-    dialogTitle: "Share this Kinwhim memory",
-  });
+  await Sharing.shareAsync(localUri, { mimeType, UTI, dialogTitle: "Share this Kinwhim memory" });
+}
+
+// Six seconds of slow drift and confetti over the memory, as an MP4 that
+// Photos, Messages, and social apps all accept.
+export async function makeMiniMovie(mediaUrl: string, day: string, onProgress: (progress: number) => void) {
+  const imageUri = await downloadMemory(mediaUrl, day);
+  const output = new File(Paths.cache, `kinwhim-${day}.mp4`);
+  return renderMiniMovie(imageUri, output.uri, { size: 720, durationMs: 6000, onProgress });
 }
 
 // Selfies are resized before upload: faster on cellular and plenty for the AI.
