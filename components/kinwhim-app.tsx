@@ -12,7 +12,9 @@ import {
   LockKeyhole,
   Plus,
   Settings2,
+  Save,
   Sparkles,
+  Trash2,
   Users,
   WandSparkles,
   X,
@@ -80,6 +82,8 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
   const [showInvite, setShowInvite] = useState(false);
   const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null);
   const [movieProgress, setMovieProgress] = useState(0);
+  const [joinCode, setJoinCode] = useState<string | null>(null);
+  const automaticReveal = useRef<string | null>(null);
 
   const load = useCallback(async (circleId?: string) => {
     setError(null);
@@ -93,9 +97,15 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
   }, []);
 
   useEffect(() => {
-    // Initial data comes from the authenticated Kinwhim API.
+    const code = new URLSearchParams(window.location.search).get("join");
+    // Read a deep-link invite once on arrival.
     // eslint-disable-next-line react-hooks/set-state-in-effect
+    setJoinCode(code?.trim().toUpperCase() || null);
+    // Initial data comes from the authenticated Kinwhim API.
     load()
+      .then(() => {
+        if (code) setShowOnboarding(true);
+      })
       .catch((caught) => setError(caught.message))
       .finally(() => setLoading(false));
   }, [load]);
@@ -103,7 +113,12 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
   const me = data?.members.find((member) => member.id === data.viewer.id);
   const checkedCount = data?.members.filter((member) => member.checkedIn).length ?? 0;
   const allChecked = Boolean(data?.members.length && checkedCount === data.members.length);
+  const consentingCount =
+    data?.members.filter((member) => member.checkedIn && member.consentTransform).length ?? 0;
   const newestMemory = data?.memories[0] ?? null;
+  const hasTodayMemory = Boolean(
+    data?.today && data.memories.some((memory) => memory.day === data.today),
+  );
   const revealLabel = data?.circle
     ? new Intl.DateTimeFormat("en-US", {
         hour: "numeric",
@@ -111,6 +126,26 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
         timeZone: data.circle.timezone,
       }).format(new Date(new Date().setHours(data.circle.revealHour, 0, 0, 0)))
     : "9:00 PM";
+
+  useEffect(() => {
+    if (
+      !data?.circle ||
+      !data.today ||
+      !allChecked ||
+      consentingCount < 2 ||
+      hasTodayMemory ||
+      !isPastReveal(data.circle)
+    ) {
+      return;
+    }
+    const key = `${data.circle.id}:${data.today}`;
+    if (automaticReveal.current === key) return;
+    automaticReveal.current = key;
+    // The API takes an atomic generation lock, so separate friends can open safely.
+    void generateMemory(true);
+    // generateMemory intentionally uses this snapshot of the loaded dashboard.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allChecked, consentingCount, data, hasTodayMemory]);
 
   async function createOrJoin(formData: FormData) {
     setBusy("circle");
@@ -131,6 +166,8 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
       if (!response.ok) throw new Error(payload.error);
       await load(payload.circleId);
       setShowOnboarding(false);
+      setJoinCode(null);
+      window.history.replaceState({}, "", window.location.pathname);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not save your circle.");
     } finally {
@@ -138,7 +175,7 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
     }
   }
 
-  async function generateMemory() {
+  async function generateMemory(automatic = false) {
     if (!data?.circle || !data.today) return;
     setBusy("generate");
     setError(null);
@@ -150,10 +187,39 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error);
+      if (payload.pending) {
+        window.setTimeout(() => load(data.circle!.id), 2500);
+        return;
+      }
       await load(data.circle.id);
-      setTab("memories");
+      if (!automatic) setTab("memories");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Tonight’s world needs another minute.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function saveCircleSettings(settings: {
+    name: string;
+    revealHour: number;
+    timezone: string;
+    style: string;
+  }) {
+    if (!data?.circle) return;
+    setBusy("settings");
+    setError(null);
+    try {
+      const response = await fetch("/api/circles/settings", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ circleId: data.circle.id, ...settings }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error);
+      await load(data.circle.id);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not save circle settings.");
     } finally {
       setBusy(null);
     }
@@ -350,8 +416,11 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
             <CirclePanel
               circle={data.circle}
               members={data.members}
+              canEdit={data.circle.ownerId === data.viewer.id}
+              saving={busy === "settings"}
               onInvite={() => setShowInvite(true)}
               onNewCircle={() => setShowOnboarding(true)}
+              onSave={saveCircleSettings}
             />
           )}
         </div>
@@ -370,6 +439,7 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
       {showOnboarding && (
         <OnboardingModal
           busy={busy === "circle"}
+          initialCode={joinCode}
           onSubmit={createOrJoin}
           onClose={data?.circle ? () => setShowOnboarding(false) : undefined}
         />
@@ -381,6 +451,10 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
           current={me}
           onClose={() => setShowCheckin(false)}
           onSaved={async () => {
+            setShowCheckin(false);
+            await load(data.circle!.id);
+          }}
+          onDeleted={async () => {
             setShowCheckin(false);
             await load(data.circle!.id);
           }}
@@ -544,7 +618,15 @@ function MemoryShelf({ memories, selected, busy, movieProgress, onSelect, onReac
   );
 }
 
-function CirclePanel({ circle, members, onInvite, onNewCircle }: { circle: Circle; members: Member[]; onInvite: () => void; onNewCircle: () => void }) {
+function CirclePanel({ circle, members, canEdit, saving, onInvite, onNewCircle, onSave }: {
+  circle: Circle;
+  members: Member[];
+  canEdit: boolean;
+  saving: boolean;
+  onInvite: () => void;
+  onNewCircle: () => void;
+  onSave: (settings: { name: string; revealHour: number; timezone: string; style: string }) => Promise<void>;
+}) {
   return (
     <section className="mx-auto max-w-3xl">
       <div className="rounded-[34px] bg-[#242117] p-7 text-[#fff8e8] sm:p-10">
@@ -555,25 +637,49 @@ function CirclePanel({ circle, members, onInvite, onNewCircle }: { circle: Circl
         <button onClick={onInvite} className="kw-primary kw-primary-light mt-7"><Plus size={18} /> Invite with {circle.inviteCode}</button>
       </div>
       <div className="mt-5 grid gap-5 sm:grid-cols-2">
-        <div className="rounded-[26px] border border-[#29251d]/10 bg-white/45 p-6"><p className="text-xs font-black uppercase tracking-widest text-[#b75d3e]">Daily rhythm</p><h3 className="mt-3 font-serif text-2xl font-black">Reveal at {formatHour(circle.revealHour)}</h3><p className="mt-2 text-sm text-[#6d675a]">Time zone: {circle.timezone.replaceAll("_", " ")}</p></div>
+        <div className="rounded-[26px] border border-[#29251d]/10 bg-white/45 p-6"><p className="text-xs font-black uppercase tracking-widest text-[#b75d3e]">Daily rhythm</p><h3 className="mt-3 font-serif text-2xl font-black">Reveal at {formatHour(circle.revealHour)}</h3><p className="mt-2 text-sm text-[#6d675a]">{circle.style} · {circle.timezone.replaceAll("_", " ")}</p></div>
         <button onClick={onNewCircle} className="rounded-[26px] border border-dashed border-[#29251d]/20 bg-white/25 p-6 text-left transition hover:bg-white/50"><Plus /><h3 className="mt-4 font-serif text-2xl font-black">Add another circle</h3><p className="mt-2 text-sm text-[#6d675a]">Family, college friends, cousins—each gets its own private world.</p></button>
       </div>
+      {canEdit && (
+        <form
+          className="mt-5 rounded-[28px] border border-[#29251d]/10 bg-[#fff8e8]/70 p-6 sm:p-8"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const form = new FormData(event.currentTarget);
+            void onSave({
+              name: String(form.get("name")),
+              revealHour: Number(form.get("revealHour")),
+              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+              style: String(form.get("style")),
+            });
+          }}
+        >
+          <div className="flex items-center gap-3"><Settings2 size={20} /><div><p className="text-xs font-black uppercase tracking-widest text-[#b75d3e]">Keeper controls</p><h3 className="font-serif text-2xl font-black">Shape the daily ritual</h3></div></div>
+          <div className="mt-6 grid gap-5 sm:grid-cols-2">
+            <div><label className="kw-label">Circle name</label><input name="name" defaultValue={circle.name} maxLength={48} className="kw-input" /></div>
+            <div><label className="kw-label">Automatic reveal</label><select name="revealHour" defaultValue={circle.revealHour} className="kw-input">{[18, 19, 20, 21, 22, 23].map((hour) => <option key={hour} value={hour}>{formatHour(hour)}</option>)}</select></div>
+          </div>
+          <label className="kw-label mt-6">Memory style</label>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{[["whimsical", "🎈"], ["cinematic", "🎬"], ["storybook", "📖"], ["scrapbook", "✂️"]].map(([style, emoji]) => <label key={style} className="cursor-pointer"><input className="peer sr-only" type="radio" name="style" value={style} defaultChecked={circle.style === style} /><span className="block rounded-2xl border border-[#29251d]/12 bg-white/50 p-3 text-center text-sm font-black capitalize transition peer-checked:border-[#242117] peer-checked:bg-[#242117] peer-checked:text-white"><span className="block text-xl">{emoji}</span>{style}</span></label>)}</div>
+          <button disabled={saving} className="kw-primary mt-6"><Save size={17} />{saving ? "Saving…" : "Save circle settings"}</button>
+        </form>
+      )}
     </section>
   );
 }
 
-function OnboardingModal({ busy, onSubmit, onClose }: { busy: boolean; onSubmit: (data: FormData) => void; onClose?: () => void }) {
-  const [mode, setMode] = useState<"create" | "join">("create");
+function OnboardingModal({ busy, initialCode, onSubmit, onClose }: { busy: boolean; initialCode: string | null; onSubmit: (data: FormData) => void; onClose?: () => void }) {
+  const [mode, setMode] = useState<"create" | "join">(initialCode ? "join" : "create");
   return (
     <Modal onClose={onClose}>
       <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-[.18em] text-[#b75d3e]">Your people are the point</p><h2 className="mt-2 font-serif text-4xl font-black">{mode === "create" ? "Name your circle." : "Find your people."}</h2></div>{onClose && <CloseButton onClick={onClose} />}</div>
       <div className="mt-6 grid grid-cols-2 rounded-full bg-[#eae2d4] p-1"><button onClick={() => setMode("create")} className={`rounded-full py-2.5 text-sm font-black ${mode === "create" ? "bg-white shadow-sm" : ""}`}>Create</button><button onClick={() => setMode("join")} className={`rounded-full py-2.5 text-sm font-black ${mode === "join" ? "bg-white shadow-sm" : ""}`}>Join</button></div>
-      <form action={onSubmit} className="mt-6"><input type="hidden" name="action" value={mode} />{mode === "create" ? <><label className="kw-label">Circle name</label><input name="name" required autoFocus maxLength={48} placeholder="The Sunday People" className="kw-input" /><p className="mt-3 text-sm text-[#6d675a]">You’ll get a private invite code to share with friends.</p></> : <><label className="kw-label">Invite code</label><input name="code" required autoFocus maxLength={12} placeholder="MOON427" className="kw-input uppercase" /></>}<button disabled={busy} className="kw-primary mt-7 w-full justify-center">{busy ? <LoaderCircle className="animate-spin" size={18} /> : <Sparkles size={18} />}{mode === "create" ? "Create my circle" : "Join the circle"}</button></form>
+      <form action={onSubmit} className="mt-6"><input type="hidden" name="action" value={mode} />{mode === "create" ? <><label className="kw-label">Circle name</label><input name="name" required autoFocus maxLength={48} placeholder="The Sunday People" className="kw-input" /><p className="mt-3 text-sm text-[#6d675a]">You’ll get a private invite link to share with friends.</p></> : <><label className="kw-label">Invite code</label><input name="code" required autoFocus maxLength={12} defaultValue={initialCode ?? ""} placeholder="MOON427" className="kw-input uppercase" /><p className="mt-3 text-sm text-[#6d675a]">Your invite link filled this in automatically.</p></>}<button disabled={busy} className="kw-primary mt-7 w-full justify-center">{busy ? <LoaderCircle className="animate-spin" size={18} /> : <Sparkles size={18} />}{mode === "create" ? "Create my circle" : "Join the circle"}</button></form>
     </Modal>
   );
 }
 
-function CheckinModal({ circle, day, current, onClose, onSaved, onError }: { circle: Circle; day: string; current?: Member; onClose: () => void; onSaved: () => Promise<void>; onError: (error: string) => void }) {
+function CheckinModal({ circle, day, current, onClose, onSaved, onDeleted, onError }: { circle: Circle; day: string; current?: Member; onClose: () => void; onSaved: () => Promise<void>; onDeleted: () => Promise<void>; onError: (error: string) => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [photo, setPhoto] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(current?.photoUrl ?? null);
@@ -600,6 +706,24 @@ function CheckinModal({ circle, day, current, onClose, onSaved, onError }: { cir
       await onSaved();
     } catch (caught) { onError(caught instanceof Error ? caught.message : "Could not save your selfie."); } finally { setSaving(false); }
   }
+  async function remove() {
+    if (!window.confirm("Remove today’s selfie from this circle?")) return;
+    setSaving(true);
+    try {
+      const response = await fetch("/api/checkins", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ circleId: circle.id, day }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error);
+      await onDeleted();
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : "Could not remove your selfie.");
+    } finally {
+      setSaving(false);
+    }
+  }
   return (
     <Modal onClose={onClose} wide>
       <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-[.18em] text-[#b75d3e]">Today’s check-in</p><h2 className="mt-2 font-serif text-4xl font-black">No performance required.</h2></div><CloseButton onClick={onClose} /></div>
@@ -609,7 +733,7 @@ function CheckinModal({ circle, day, current, onClose, onSaved, onError }: { cir
           <span className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-[#242117]/85 px-4 py-2 text-xs font-black text-white backdrop-blur">{preview ? "Choose another" : "Add selfie"}</span>
           <input ref={inputRef} hidden type="file" accept="image/*" capture="user" onChange={(event) => choose(event.target.files?.[0])} />
         </button>
-        <div><label className="kw-label">Your weather today</label><div className="flex flex-wrap gap-2">{moods.map(([label, emoji]) => <button type="button" key={label} onClick={() => setMood(label)} className={`rounded-full border px-3 py-2 text-sm font-bold transition ${mood === label ? "border-[#242117] bg-[#242117] text-white" : "border-[#29251d]/15 bg-white/50"}`}>{emoji} {label}</button>)}</div><label className="kw-label mt-6">Tiny caption <span className="font-medium text-[#8a8274]">(optional)</span></label><textarea value={caption} onChange={(event) => setCaption(event.target.value)} maxLength={120} placeholder="Today felt like…" className="kw-input min-h-24 resize-none" /><label className="mt-5 flex cursor-pointer items-start gap-3 rounded-2xl bg-[#c9d9c3]/55 p-4"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} className="mt-1 h-4 w-4 accent-[#242117]" /><span><strong className="block text-sm">Include me in tonight’s transformation</strong><small className="mt-1 block leading-relaxed text-[#536352]">Kinwhim may use this selfie to make the circle’s private shared image. You can replace it before the reveal.</small></span></label><button disabled={saving} className="kw-primary mt-6 w-full justify-center">{saving ? <LoaderCircle className="animate-spin" size={18} /> : <Sparkles size={18} />}Save today’s selfie</button></div>
+        <div><label className="kw-label">Your weather today</label><div className="flex flex-wrap gap-2">{moods.map(([label, emoji]) => <button type="button" key={label} onClick={() => setMood(label)} className={`rounded-full border px-3 py-2 text-sm font-bold transition ${mood === label ? "border-[#242117] bg-[#242117] text-white" : "border-[#29251d]/15 bg-white/50"}`}>{emoji} {label}</button>)}</div><label className="kw-label mt-6">Tiny caption <span className="font-medium text-[#8a8274]">(optional)</span></label><textarea value={caption} onChange={(event) => setCaption(event.target.value)} maxLength={120} placeholder="Today felt like…" className="kw-input min-h-24 resize-none" /><label className="mt-5 flex cursor-pointer items-start gap-3 rounded-2xl bg-[#c9d9c3]/55 p-4"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} className="mt-1 h-4 w-4 accent-[#242117]" /><span><strong className="block text-sm">Include me in tonight’s transformation</strong><small className="mt-1 block leading-relaxed text-[#536352]">Kinwhim may use this selfie to make the circle’s private shared image. You can replace or remove it before the reveal.</small></span></label><button disabled={saving} className="kw-primary mt-6 w-full justify-center">{saving ? <LoaderCircle className="animate-spin" size={18} /> : <Sparkles size={18} />}Save today’s selfie</button>{current?.checkedIn && <button type="button" disabled={saving} onClick={remove} className="mt-3 flex w-full items-center justify-center gap-2 rounded-full px-4 py-3 text-sm font-black text-[#a53b2c] transition hover:bg-[#a53b2c]/8"><Trash2 size={16} />Remove today’s selfie</button>}</div>
       </form>
     </Modal>
   );
@@ -617,8 +741,9 @@ function CheckinModal({ circle, day, current, onClose, onSaved, onError }: { cir
 
 function InviteModal({ circle, onClose }: { circle: Circle; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
-  const inviteText = `Join my private Kinwhim circle “${circle.name}” with code ${circle.inviteCode}. One selfie a day, one shared little world.`;
-  return <Modal onClose={onClose}><div className="flex justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-widest text-[#b75d3e]">Bring the crew</p><h2 className="mt-2 font-serif text-4xl font-black">Pass the secret knock.</h2></div><CloseButton onClick={onClose} /></div><div className="mt-7 rounded-[26px] bg-[#242117] p-7 text-center text-[#fff8e8]"><p className="text-xs font-black uppercase tracking-[.2em] text-[#f5d98b]">Invite code</p><p className="mt-3 font-mono text-4xl font-black tracking-[.12em]">{circle.inviteCode}</p></div><button onClick={async () => { await navigator.clipboard.writeText(inviteText); setCopied(true); }} className="kw-primary mt-5 w-full justify-center">{copied ? <Check size={18} /> : <Copy size={18} />}{copied ? "Copied—send it anywhere" : "Copy invitation"}</button><p className="mt-4 text-center text-xs leading-relaxed text-[#6d675a]">Friends sign in privately, enter the code, and only then can they see your circle.</p></Modal>;
+  const inviteUrl = `${typeof window === "undefined" ? "" : window.location.origin}/?join=${circle.inviteCode}`;
+  const inviteText = `Join my private Kinwhim circle “${circle.name}”. One selfie a day, one shared little world. ${inviteUrl}`;
+  return <Modal onClose={onClose}><div className="flex justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-widest text-[#b75d3e]">Bring the crew</p><h2 className="mt-2 font-serif text-4xl font-black">Pass the secret knock.</h2></div><CloseButton onClick={onClose} /></div><div className="mt-7 rounded-[26px] bg-[#242117] p-7 text-center text-[#fff8e8]"><p className="text-xs font-black uppercase tracking-[.2em] text-[#f5d98b]">Invite code</p><p className="mt-3 font-mono text-4xl font-black tracking-[.12em]">{circle.inviteCode}</p></div><button onClick={async () => { await navigator.clipboard.writeText(inviteText); setCopied(true); }} className="kw-primary mt-5 w-full justify-center">{copied ? <Check size={18} /> : <Copy size={18} />}{copied ? "Link copied—send it anywhere" : "Copy smart invite link"}</button><p className="mt-4 text-center text-xs leading-relaxed text-[#6d675a]">The link fills in the code automatically. Friends still need permission to open this private site.</p></Modal>;
 }
 
 function Modal({ children, onClose, wide = false }: { children: React.ReactNode; onClose?: () => void; wide?: boolean }) {
@@ -672,3 +797,13 @@ function firstName(name: string) { return name.split(/[\s@]+/)[0] || "friend"; }
 function friendlyDay(day?: string) { if (!day) return "Today"; return new Date(`${day}T12:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }); }
 function prettyDate(day: string) { return new Date(`${day}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); }
 function formatHour(hour: number) { const value = new Date(); value.setHours(hour, 0, 0, 0); return value.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }); }
+function isPastReveal(circle: Circle) {
+  const hour = Number(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: circle.timezone,
+      hour: "2-digit",
+      hourCycle: "h23",
+    }).format(new Date()),
+  );
+  return hour >= circle.revealHour;
+}

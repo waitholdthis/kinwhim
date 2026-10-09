@@ -17,6 +17,7 @@ type CheckinRow = {
 };
 
 export async function POST(request: Request) {
+  let claimed: { circleId: string; day: string } | null = null;
   try {
     const viewer = await requireViewer();
     const body = (await request.json()) as { circleId?: string; day?: string };
@@ -55,6 +56,38 @@ export async function POST(request: Request) {
         { status: 409 },
       );
     }
+
+    const existingMemory = await db
+      .prepare("SELECT id FROM memories WHERE circle_id = ? AND day = ? LIMIT 1")
+      .bind(body.circleId, body.day)
+      .first<{ id: string }>();
+    if (existingMemory) {
+      return Response.json({ ok: true, memoryId: existingMemory.id, alreadyExists: true });
+    }
+
+    const jobNow = nowSeconds();
+    const claim = await db
+      .prepare(
+        `INSERT OR IGNORE INTO generation_jobs
+         (id, circle_id, day, status, requested_by, created_at, updated_at)
+         VALUES (?, ?, ?, 'working', ?, ?, ?)`,
+      )
+      .bind(
+        crypto.randomUUID(),
+        body.circleId,
+        body.day,
+        viewer.id,
+        jobNow,
+        jobNow,
+      )
+      .run();
+    if (!Number(claim.meta.changes ?? 0)) {
+      return Response.json(
+        { ok: true, pending: true, message: "Tonight’s world is already being made." },
+        { status: 202 },
+      );
+    }
+    claimed = { circleId: body.circleId, day: body.day };
 
     const prompt = makePrompt(circle.name, circle.style, checkins);
     const form = new FormData();
@@ -124,8 +157,25 @@ export async function POST(request: Request) {
       )
       .run();
     if (previous?.mediaKey) await bucket().delete(previous.mediaKey);
+    await db
+      .prepare(
+        "UPDATE generation_jobs SET status = 'complete', updated_at = ? WHERE circle_id = ? AND day = ?",
+      )
+      .bind(nowSeconds(), body.circleId, body.day)
+      .run();
+    claimed = null;
     return Response.json({ ok: true, memoryId });
   } catch (error) {
+    if (claimed) {
+      try {
+        await database()
+          .prepare("DELETE FROM generation_jobs WHERE circle_id = ? AND day = ?")
+          .bind(claimed.circleId, claimed.day)
+          .run();
+      } catch {
+        // Preserve the original generation error.
+      }
+    }
     return jsonError(error);
   }
 }

@@ -94,3 +94,22 @@ export const reactions = sqliteTable(
     uniqueIndex("reactions_memory_user_unique").on(table.memoryId, table.userId),
   ],
 );
+
+export const generationJobs = sqliteTable(
+  "generation_jobs",
+  {
+    id: text("id").primaryKey(),
+    circleId: text("circle_id").notNull(),
+    day: text("day").notNull(),
+    status: text("status").notNull().default("working"),
+    requestedBy: text("requested_by").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("generation_jobs_circle_day_unique").on(
+      table.circleId,
+      table.day,
+    ),
+  ],
+);

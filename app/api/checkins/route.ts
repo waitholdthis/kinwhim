@@ -76,3 +76,29 @@ export async function POST(request: Request) {
     return jsonError(error);
   }
 }
+
+export async function DELETE(request: Request) {
+  try {
+    const viewer = await requireViewer();
+    const body = (await request.json()) as { circleId?: string; day?: string };
+    if (!body.circleId || !body.day) {
+      return Response.json({ error: "Choose a check-in to remove." }, { status: 400 });
+    }
+    await requireCircleMember(body.circleId, viewer.id);
+    const db = database();
+    const existing = await db
+      .prepare(
+        "SELECT photo_key AS photoKey FROM checkins WHERE circle_id = ? AND user_id = ? AND day = ?",
+      )
+      .bind(body.circleId, viewer.id, body.day)
+      .first<{ photoKey: string }>();
+    if (existing?.photoKey) await bucket().delete(existing.photoKey);
+    await db
+      .prepare("DELETE FROM checkins WHERE circle_id = ? AND user_id = ? AND day = ?")
+      .bind(body.circleId, viewer.id, body.day)
+      .run();
+    return Response.json({ ok: true });
+  } catch (error) {
+    return jsonError(error);
+  }
+}
