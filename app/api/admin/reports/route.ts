@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 // GET /api/admin/reports?status=open — the moderation queue, oldest first.
 export async function GET(request: Request) {
   try {
-    requireAdmin(request);
+    await requireAdmin(request);
     const status = new URL(request.url).searchParams.get("status") ?? "open";
     const rows = await database()
       .prepare(
@@ -27,7 +27,11 @@ export async function GET(request: Request) {
       )
       .bind(status)
       .all();
+    const counts = await database()
+      .prepare("SELECT status, COUNT(*) AS count FROM reports GROUP BY status")
+      .all<{ status: string; count: number }>();
     return Response.json({
+      counts: Object.fromEntries(counts.results.map((row) => [row.status, Number(row.count)])),
       reports: rows.results.map((row) => ({
         ...row,
         evidenceUrl: row.hasEvidence ? `/api/admin/reports/${row.id}/evidence` : null,

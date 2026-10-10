@@ -22,7 +22,9 @@ declare namespace Cloudflare {
     EMAIL_FROM?: string;
     // Where new safety reports are emailed.
     MODERATION_EMAIL?: string;
-    // Bearer secret for /api/admin/* moderation tools.
+    // Comma-separated emails of moderators who can open /admin.
+    ADMIN_EMAILS?: string;
+    // Bearer secret for scripted access to /api/admin/* moderation tools.
     ADMIN_TOKEN?: string;
     // Bearer secret for /api/cron/nightly.
     CRON_SECRET?: string;

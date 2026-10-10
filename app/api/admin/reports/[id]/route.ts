@@ -7,7 +7,7 @@ type Action = "dismiss" | "remove_content" | "suspend_user" | "remove_and_suspen
 // POST /api/admin/reports/:id { action, note } — resolve a report.
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
-    requireAdmin(request);
+    await requireAdmin(request);
     const { id } = await context.params;
     const body = await readJson<{ action: Action; note: string }>(request);
     const db = database();

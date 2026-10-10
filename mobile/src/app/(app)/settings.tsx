@@ -3,7 +3,7 @@ import * as Notifications from "expo-notifications";
 import { router } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import { useEffect, useState } from "react";
-import { Alert, Linking, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Linking, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { Body, Button, Card, Eyebrow, Row } from "@/components/ui";
 import { confirm } from "@/lib/actions";
 import { API_URL, api, errorMessage } from "@/lib/api";
@@ -19,6 +19,20 @@ export default function Settings() {
   const [name, setName] = useState(viewer?.name ?? "");
   const [notifications, setNotifications] = useState<"granted" | "denied" | "undetermined">("undetermined");
   const [busy, setBusy] = useState<string | null>(null);
+  // null until changed here, so the dashboard value shows when it loads.
+  const [remindersOverride, setRemindersOverride] = useState<boolean | null>(null);
+  const reminders = remindersOverride ?? data?.viewer.remindersEnabled ?? true;
+
+  async function setReminders(next: boolean) {
+    setRemindersOverride(next);
+    try {
+      await api("/api/me", { method: "PATCH", body: { remindersEnabled: next } });
+      await refresh();
+    } catch (caught) {
+      setRemindersOverride(!next);
+      Alert.alert("Couldn’t save", errorMessage(caught));
+    }
+  }
 
   useEffect(() => {
     void Notifications.getPermissionsAsync().then((result) =>
@@ -109,6 +123,18 @@ export default function Settings() {
             : void registerForPush({ prompt: true }).then((token) => setNotifications(token ? "granted" : "denied"))
         }
       />
+      <View style={styles.switchRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.switchLabel}>Check-in reminders</Text>
+          <Text style={styles.small}>Two hours before reveal if you haven’t checked in, when you’re the last one, and a Sunday recap.</Text>
+        </View>
+        <Switch
+          value={reminders}
+          onValueChange={(next) => void setReminders(next)}
+          trackColor={{ true: colors.coral }}
+          accessibilityLabel="Check-in reminders"
+        />
+      </View>
 
       <Text style={styles.section}>Safety</Text>
       <Row label="Blocked people" onPress={() => router.push("/blocked")} />
@@ -138,6 +164,8 @@ export default function Settings() {
 
 const styles = StyleSheet.create({
   input: { marginTop: 8, fontSize: 20, fontWeight: "800", color: colors.ink, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.line },
+  switchRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  switchLabel: { fontSize: 16, fontWeight: "700", color: colors.ink },
   small: { marginTop: 8, fontSize: 13, color: colors.muted },
   section: { marginTop: 28, marginBottom: 4, fontSize: 12, fontWeight: "900", letterSpacing: 2, textTransform: "uppercase", color: colors.rust },
 });

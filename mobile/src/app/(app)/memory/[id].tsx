@@ -1,6 +1,6 @@
 import * as Haptics from "expo-haptics";
 import { router, Stack, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { MiniMovie } from "@/components/mini-movie";
 import { AuthImage, Body, Button, ErrorBanner, Eyebrow, Title } from "@/components/ui";
@@ -10,6 +10,7 @@ import { useDashboard } from "@/lib/dashboard";
 import { downloadMemory, saveToPhotos, shareImage } from "@/lib/media";
 import { colors, reactionEmoji } from "@/lib/theme";
 import { prettyDate } from "@/lib/format";
+import type { Memory } from "@/lib/types";
 
 export default function MemoryScreen() {
   const { id, circle } = useLocalSearchParams<{ id: string; circle?: string }>();
@@ -22,18 +23,41 @@ export default function MemoryScreen() {
     if (circle && circle !== circleId) void selectCircle(circle);
   }, [circle, circleId, selectCircle]);
 
-  const memory = data?.memories.find((candidate) => candidate.id === id);
+  // Older memories (opened from the calendar) aren't in the dashboard's recent
+  // list, so they're fetched on their own.
+  const recent = data?.memories.find((candidate) => candidate.id === id);
+  const [fetched, setFetched] = useState<{ id: string; memory: Memory | null } | null>(null);
+  const memory = recent ?? (fetched?.id === id ? fetched.memory ?? undefined : undefined);
+  const missing = !recent && fetched?.id === id && !fetched.memory;
+
+  const loadSingle = useCallback(
+    () =>
+      api<{ memory: Memory }>(`/api/memories/${encodeURIComponent(id)}`).then(
+        (result) => setFetched({ id, memory: result.memory }),
+        () => setFetched({ id, memory: null }),
+      ),
+    [id],
+  );
+
+  useEffect(() => {
+    if (data && !recent && fetched?.id !== id) void loadSingle();
+  }, [data, recent, fetched?.id, id, loadSingle]);
+
+  // Refreshes whichever source this memory came from.
+  const reload = useCallback(async () => {
+    await (recent ? refresh() : Promise.all([refresh(), loadSingle()]));
+  }, [recent, refresh, loadSingle]);
 
   useEffect(() => {
     if (memory && !memory.isRead) {
-      void api("/api/notifications", { body: { memoryId: memory.id } }).then(() => refresh());
+      void api("/api/notifications", { body: { memoryId: memory.id } }).then(() => reload());
     }
-  }, [memory, refresh]);
+  }, [memory, reload]);
 
   if (!data || !memory) {
     return (
       <View style={styles.center}>
-        <Body>{data ? "This memory is no longer here." : "Loading…"}</Body>
+        <Body>{missing ? "This memory is no longer here." : "Loading…"}</Body>
       </View>
     );
   }

@@ -1,10 +1,11 @@
 "use client";
 
-import { Ban, LoaderCircle, LogOut, Trash2 } from "lucide-react";
+import { Ban, Bell, LoaderCircle, LogOut, Trash2 } from "lucide-react";
 import { useState } from "react";
 
-export function AccountPanel({ name, email, blocked: initialBlocked }: { name: string; email: string; blocked: Array<{ id: string; name: string }> }) {
+export function AccountPanel({ name, email, blocked: initialBlocked, remindersEnabled: initialReminders }: { name: string; email: string; blocked: Array<{ id: string; name: string }>; remindersEnabled: boolean }) {
   const [blocked, setBlocked] = useState(initialBlocked);
+  const [reminders, setReminders] = useState(initialReminders);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [confirmText, setConfirmText] = useState("");
@@ -39,6 +40,30 @@ export function AccountPanel({ name, email, blocked: initialBlocked }: { name: s
         >
           {busy === "logout" ? <LoaderCircle className="animate-spin" size={16} /> : <LogOut size={16} />} Sign out
         </button>
+      </section>
+
+      <section className="rounded-[28px] bg-white/60 p-6">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="flex items-center gap-2 font-serif text-2xl font-black"><Bell size={20} /> Check-in reminders</h2>
+            <p className="mt-2 text-sm leading-relaxed text-[#5b5548]">
+              A nudge in the Kinwhim app two hours before reveal if you haven’t checked in, when you’re the last one, and a Sunday recap of the week.
+            </p>
+          </div>
+          <button
+            role="switch"
+            aria-checked={reminders}
+            aria-label="Check-in reminders"
+            disabled={busy === "reminders"}
+            onClick={async () => {
+              const next = !reminders;
+              if (await call("/api/me", { method: "PATCH", body: JSON.stringify({ remindersEnabled: next }) }, "reminders")) setReminders(next);
+            }}
+            className={`relative h-8 w-14 shrink-0 rounded-full transition ${reminders ? "bg-[#ef8354]" : "bg-[#29251d]/20"}`}
+          >
+            <span className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition-all ${reminders ? "left-7" : "left-1"}`} />
+          </button>
+        </div>
       </section>
 
       <section className="rounded-[28px] bg-white/60 p-6">

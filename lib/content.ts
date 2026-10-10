@@ -55,6 +55,8 @@ export async function deleteCircle(circleId: string) {
   await db.batch([
     db.prepare("DELETE FROM checkins WHERE circle_id = ?").bind(circleId),
     db.prepare("DELETE FROM generation_jobs WHERE circle_id = ?").bind(circleId),
+    db.prepare("DELETE FROM checkin_log WHERE circle_id = ?").bind(circleId),
+    db.prepare("DELETE FROM notification_log WHERE circle_id = ?").bind(circleId),
     db.prepare("DELETE FROM circle_members WHERE circle_id = ?").bind(circleId),
     db.prepare("DELETE FROM circles WHERE id = ?").bind(circleId),
   ]);
@@ -66,10 +68,10 @@ export async function deleteCircle(circleId: string) {
 export async function removeMember(circleId: string, userId: string) {
   const db = database();
   await deleteCheckins({ userId, circleId });
-  await db
-    .prepare("DELETE FROM circle_members WHERE circle_id = ? AND user_id = ?")
-    .bind(circleId, userId)
-    .run();
+  await db.batch([
+    db.prepare("DELETE FROM circle_members WHERE circle_id = ? AND user_id = ?").bind(circleId, userId),
+    db.prepare("DELETE FROM checkin_log WHERE circle_id = ? AND user_id = ?").bind(circleId, userId),
+  ]);
   const next = await db
     .prepare("SELECT user_id AS userId FROM circle_members WHERE circle_id = ? ORDER BY joined_at ASC LIMIT 1")
     .bind(circleId)
@@ -129,6 +131,8 @@ export async function deleteAccount(userId: string) {
     db.prepare("DELETE FROM reactions WHERE user_id = ?").bind(userId),
     db.prepare("DELETE FROM notification_reads WHERE user_id = ?").bind(userId),
     db.prepare("DELETE FROM push_tokens WHERE user_id = ?").bind(userId),
+    db.prepare("DELETE FROM checkin_log WHERE user_id = ?").bind(userId),
+    db.prepare("DELETE FROM notification_log WHERE user_id = ?").bind(userId),
     db.prepare("DELETE FROM sessions WHERE user_id = ?").bind(userId),
     db.prepare("DELETE FROM identities WHERE user_id = ?").bind(userId),
     db.prepare("DELETE FROM user_blocks WHERE blocker_id = ? OR blocked_id = ?").bind(userId, userId),

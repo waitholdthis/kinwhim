@@ -1,4 +1,6 @@
 import { env } from "cloudflare:workers";
+import { splitList } from "@/lib/auth/apple";
+import { getViewer, type Viewer } from "@/lib/kinwhim-server";
 
 export function requireSecret(request: Request, secret: string | undefined) {
   const provided = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
@@ -7,8 +9,21 @@ export function requireSecret(request: Request, secret: string | undefined) {
   }
 }
 
-export function requireAdmin(request: Request) {
-  requireSecret(request, env.ADMIN_TOKEN);
+// Moderators are signed-in people whose (verified) email is in ADMIN_EMAILS.
+export function isAdmin(viewer: Viewer | null) {
+  if (!viewer?.email) return false;
+  return splitList(env.ADMIN_EMAILS).map((email) => email.toLowerCase()).includes(viewer.email.toLowerCase());
+}
+
+// Admin APIs accept either a moderator's session or the ADMIN_TOKEN bearer
+// secret (for scripts).
+export async function requireAdmin(request: Request) {
+  const bearer = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+  if (env.ADMIN_TOKEN && bearer && timingSafeEqual(bearer, env.ADMIN_TOKEN)) return;
+  // Otherwise the bearer (or cookie) must be a moderator's own session.
+  if (!isAdmin(await getViewer())) {
+    throw Response.json({ error: "Not authorized." }, { status: 401 });
+  }
 }
 
 function timingSafeEqual(a: string, b: string) {

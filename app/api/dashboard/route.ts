@@ -7,6 +7,7 @@ import {
   requireViewer,
 } from "@/lib/kinwhim-server";
 import { CURRENT_TERMS_VERSION } from "@/lib/policies";
+import { listMemories, streaksFor } from "@/lib/memories";
 import { unreadCountFor } from "@/lib/push";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +23,13 @@ export async function GET(request: Request) {
       name: viewer.name,
       email: viewer.email,
       needsTerms: viewer.termsVersion !== CURRENT_TERMS_VERSION,
+      remindersEnabled: true,
     };
+    const preferences = await db
+      .prepare("SELECT reminders_enabled AS remindersEnabled FROM profiles WHERE id = ?")
+      .bind(viewer.id)
+      .first<{ remindersEnabled: number }>();
+    viewerSummary.remindersEnabled = Boolean(preferences?.remindersEnabled ?? 1);
 
     const circleRows = await db
       .prepare(
@@ -48,6 +55,7 @@ export async function GET(request: Request) {
         members: [],
         memories: [],
         unreadCount: 0,
+        streaks: { circle: 0, mine: 0 },
         badgeCount,
         termsVersion: CURRENT_TERMS_VERSION,
       });
@@ -76,31 +84,8 @@ export async function GET(request: Request) {
       .bind(today, selected.id)
       .all<Record<string, string | number | null>>();
 
-    const memoryRows = await db
-      .prepare(
-        `SELECT m.id, m.day, m.media_key AS mediaKey, m.kind, m.title, m.created_at AS createdAt,
-                GROUP_CONCAT(r.emoji) AS reactions,
-                CASE WHEN EXISTS (
-                  SELECT 1 FROM notification_reads nr
-                  WHERE nr.memory_id = m.id AND nr.user_id = ?
-                ) THEN 1 ELSE 0 END AS isRead,
-                CASE WHEN EXISTS (
-                  SELECT 1 FROM memory_participants mp
-                  WHERE mp.memory_id = m.id AND mp.user_id = ?
-                ) THEN 1 ELSE 0 END AS featuresViewer
-         FROM memories m
-         LEFT JOIN reactions r ON r.memory_id = m.id
-         WHERE m.circle_id = ?
-           AND NOT EXISTS (
-             SELECT 1 FROM reports rp
-             WHERE rp.target_type = 'memory' AND rp.target_id = m.id AND rp.reporter_id = ?
-           )
-         GROUP BY m.id
-         ORDER BY m.day DESC
-         LIMIT 30`,
-      )
-      .bind(viewer.id, viewer.id, selected.id, viewer.id)
-      .all<Record<string, string | number | null>>();
+    const memories = await listMemories({ viewerId: viewer.id, circleId: String(selected.id), limit: 30 });
+    const streaks = await streaksFor(viewer.id, String(selected.id), today);
 
     return Response.json({
       viewer: viewerSummary,
@@ -125,18 +110,9 @@ export async function GET(request: Request) {
           blocked: isBlocked,
         };
       }),
-      memories: memoryRows.results.map((memory) => ({
-        id: memory.id,
-        day: memory.day,
-        kind: memory.kind,
-        title: memory.title,
-        createdAt: memory.createdAt,
-        mediaUrl: mediaUrl(String(memory.mediaKey)),
-        reactions: memory.reactions ? String(memory.reactions).split(",") : [],
-        isRead: Boolean(memory.isRead),
-        featuresViewer: Boolean(memory.featuresViewer),
-      })),
-      unreadCount: memoryRows.results.filter((memory) => !memory.isRead).length,
+      memories,
+      unreadCount: memories.filter((memory) => !memory.isRead).length,
+      streaks,
       badgeCount,
       termsVersion: CURRENT_TERMS_VERSION,
     });

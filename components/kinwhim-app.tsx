@@ -93,6 +93,7 @@ type Dashboard = {
   members: Member[];
   memories: Memory[];
   unreadCount: number;
+  streaks: { circle: number; mine: number };
 };
 
 type MovieAsset = {
@@ -111,6 +112,8 @@ const moods = [
   ["victorious", "🏆"],
 ];
 const reactions = ["✨", "😂", "🥹", "🫶", "🔥"];
+
+type ApiPayload = { error?: string; pending?: boolean; circleId?: string; memoryId?: string };
 
 export function KinwhimApp({ user }: { user: { name: string; email: string } }) {
   const [data, setData] = useState<Dashboard | null>(null);
@@ -143,7 +146,7 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
     const response = await fetch(`/api/dashboard${circleId ? `?circle=${circleId}` : ""}`, {
       cache: "no-store",
     });
-    const payload = await response.json();
+    const payload = (await response.json()) as Dashboard & { error?: string };
     if (!response.ok) throw new Error(payload.error || "Kinwhim could not wake up.");
     setData(payload);
     setShowOnboarding(!payload.circle);
@@ -215,7 +218,7 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         }),
       });
-      const payload = await response.json();
+      const payload = (await response.json()) as ApiPayload;
       if (!response.ok) throw new Error(payload.error);
       await load(payload.circleId);
       setShowOnboarding(false);
@@ -240,7 +243,7 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ version: data.termsVersion, ageConfirmed: true }),
     });
-    const payload = await response.json();
+    const payload = (await response.json()) as ApiPayload;
     if (!response.ok) throw new Error(payload.error);
     setData({ ...data, viewer: { ...data.viewer, needsTerms: false } });
     setShowTerms(false);
@@ -257,7 +260,7 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ circleId: data.circle.id, day: data.today }),
       });
-      const payload = await response.json();
+      const payload = (await response.json()) as ApiPayload;
       if (!response.ok) throw new Error(payload.error);
       if (payload.pending) {
         window.setTimeout(() => load(data.circle!.id), 2500);
@@ -287,7 +290,7 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ circleId: data.circle.id, ...settings }),
       });
-      const payload = await response.json();
+      const payload = (await response.json()) as ApiPayload;
       if (!response.ok) throw new Error(payload.error);
       await load(data.circle.id);
     } catch (caught) {
@@ -427,6 +430,7 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
               <h1 className="max-w-2xl font-serif text-4xl font-black leading-[0.98] tracking-[-0.045em] sm:text-6xl">
                 {me?.checkedIn ? "You’re in. Let the day unfold." : "Show up exactly as you are."}
               </h1>
+              <Streaks streaks={data.streaks} />
             </div>
             <CircleSwitcher
               circles={data.circles}
@@ -504,7 +508,7 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
                     Kinwhim blends everyone’s opted-in selfies into one playful friendship scene.
                   </p>
                   <button
-                    onClick={generateMemory}
+                    onClick={() => void generateMemory()}
                     disabled={!allChecked || busy === "generate"}
                     className="mt-6 flex w-full items-center justify-center gap-2 rounded-full bg-[#242117] px-5 py-3.5 text-sm font-black text-[#fff8e8] disabled:cursor-not-allowed disabled:opacity-45"
                   >
@@ -541,6 +545,7 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
 
           {tab === "memories" && (
             <MemoryShelf
+              circleId={data.circle.id}
               memories={data.memories}
               selected={selectedMemory}
               busy={busy}
@@ -760,6 +765,25 @@ function EmptyHome({ name, onStart, error }: { name: string; onStart: () => void
   );
 }
 
+function Streaks({ streaks }: { streaks: { circle: number; mine: number } }) {
+  if (!streaks.circle && !streaks.mine) return null;
+  const chip = "rounded-full border border-[#29251d]/12 bg-white/60 px-3.5 py-1.5 text-sm font-black";
+  return (
+    <div className="mt-4 flex flex-wrap gap-2" aria-label="Streaks">
+      {streaks.circle > 0 && (
+        <span className={chip} title="Days in a row your circle made a memory">
+          🔥 {streaks.circle}-day circle streak
+        </span>
+      )}
+      {streaks.mine > 0 && (
+        <span className={chip} title="Days in a row you checked in">
+          ✨ You: {streaks.mine} {streaks.mine === 1 ? "day" : "days"}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function MemberTile({ member, index, onMenu }: { member: Member; index: number; onMenu?: () => void }) {
   const colors = ["#ef8354", "#f5d98b", "#c9d9c3", "#c6b9dc", "#e7b4a2"];
   return (
@@ -802,7 +826,8 @@ function CircleSwitcher({ circles, selected, onChange }: { circles: Circle[]; se
   );
 }
 
-function MemoryShelf({ memories, selected, busy, movieProgress, movieAsset, onSelect, onReact, onMovie, onShareMovie, onDownloadMovie, canDelete, onReport, onDelete }: {
+function MemoryShelf({ circleId, memories, selected, busy, movieProgress, movieAsset, onSelect, onReact, onMovie, onShareMovie, onDownloadMovie, canDelete, onReport, onDelete }: {
+  circleId: string;
   memories: Memory[];
   selected: Memory | null;
   busy: string | null;
@@ -817,6 +842,7 @@ function MemoryShelf({ memories, selected, busy, movieProgress, movieAsset, onSe
   onReport: (memory: Memory) => void;
   onDelete: (memory: Memory) => void;
 }) {
+  const [view, setView] = useState<"shelf" | "calendar">("shelf");
   const featured = selected ?? memories[0];
   if (!featured) {
     return (
@@ -879,16 +905,91 @@ function MemoryShelf({ memories, selected, busy, movieProgress, movieAsset, onSe
           </div>
         </aside>
       </div>
-      <h3 className="mb-4 mt-12 font-serif text-3xl font-black">The shelf</h3>
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-        {memories.map((memory, index) => (
-          <button key={memory.id} onClick={() => onSelect(memory)} className={`group text-left ${index % 2 ? "sm:translate-y-5" : ""}`}>
-            <img src={memory.mediaUrl} alt={memory.title} className="aspect-square w-full rounded-[24px] object-cover shadow-lg transition duration-300 group-hover:-translate-y-2 group-hover:rotate-1" />
-            <p className="mt-3 truncate font-black">{memory.title}</p><p className="text-xs text-[#6d675a]">{prettyDate(memory.day)}</p>
-          </button>
-        ))}
+      <div className="mb-4 mt-12 flex flex-wrap items-center justify-between gap-3">
+        <h3 className="font-serif text-3xl font-black">{view === "shelf" ? "The shelf" : "The calendar"}</h3>
+        <div className="flex rounded-full border border-[#29251d]/15 bg-white/50 p-1" role="tablist">
+          {(["shelf", "calendar"] as const).map((option) => (
+            <button
+              key={option}
+              role="tab"
+              aria-selected={view === option}
+              onClick={() => setView(option)}
+              className={`rounded-full px-4 py-1.5 text-sm font-black capitalize ${view === option ? "bg-[#242117] text-[#fff8e8]" : ""}`}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
       </div>
+      {view === "shelf" ? (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+          {memories.map((memory, index) => (
+            <button key={memory.id} onClick={() => onSelect(memory)} className={`group text-left ${index % 2 ? "sm:translate-y-5" : ""}`}>
+              <img src={memory.mediaUrl} alt={memory.title} className="aspect-square w-full rounded-[24px] object-cover shadow-lg transition duration-300 group-hover:-translate-y-2 group-hover:rotate-1" />
+              <p className="mt-3 truncate font-black">{memory.title}</p><p className="text-xs text-[#6d675a]">{prettyDate(memory.day)}</p>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <MemoryCalendar circleId={circleId} initialMonth={featured.day.slice(0, 7)} onSelect={(memory) => { onSelect(memory); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
+      )}
     </section>
+  );
+}
+
+// One month at a time from /api/memories, so memories older than the
+// dashboard's recent list are still reachable.
+function MemoryCalendar({ circleId, initialMonth, onSelect }: { circleId: string; initialMonth: string; onSelect: (memory: Memory) => void }) {
+  const [month, setMonth] = useState(initialMonth);
+  const [loaded, setLoaded] = useState<{ month: string; memories: Memory[] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/memories?circle=${encodeURIComponent(circleId)}&month=${month}`, { cache: "no-store" })
+      .then(async (response) => {
+        const payload = (await response.json()) as { memories?: Memory[]; error?: string };
+        if (!response.ok) throw new Error(payload.error || "Couldn’t load this month.");
+        setLoaded({ month, memories: payload.memories ?? [] });
+        setError(null);
+      })
+      .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Couldn’t load this month."));
+  }, [circleId, month]);
+
+  const [year, monthNumber] = month.split("-").map(Number);
+  const leading = new Date(Date.UTC(year, monthNumber - 1, 1)).getUTCDay();
+  const daysInMonth = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+  const byDay = new Map((loaded?.month === month ? loaded.memories : []).map((memory) => [memory.day, memory]));
+  const shift = (amount: number) => {
+    const next = new Date(Date.UTC(year, monthNumber - 1 + amount, 1));
+    setMonth(`${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}`);
+  };
+  const label = new Date(Date.UTC(year, monthNumber - 1, 1)).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+
+  return (
+    <div className="rounded-[30px] border border-[#29251d]/10 bg-white/50 p-5 sm:p-7">
+      <div className="flex items-center justify-between">
+        <button onClick={() => shift(-1)} aria-label="Previous month" className="grid h-10 w-10 place-items-center rounded-full bg-[#eae2d4] font-black">‹</button>
+        <p className="font-serif text-2xl font-black">{label}</p>
+        <button onClick={() => shift(1)} aria-label="Next month" className="grid h-10 w-10 place-items-center rounded-full bg-[#eae2d4] font-black">›</button>
+      </div>
+      {error && <p className="mt-4 font-bold text-[#b23b2a]">{error}</p>}
+      <div className="mt-5 grid grid-cols-7 gap-1.5 text-center text-xs font-black uppercase tracking-wider text-[#6d675a] sm:gap-2.5">
+        {["S", "M", "T", "W", "T", "F", "S"].map((day, index) => <span key={index}>{day}</span>)}
+        {Array.from({ length: leading }, (_, index) => <span key={`blank-${index}`} />)}
+        {Array.from({ length: daysInMonth }, (_, index) => {
+          const day = `${month}-${String(index + 1).padStart(2, "0")}`;
+          const memory = byDay.get(day);
+          return memory ? (
+            <button key={day} onClick={() => onSelect(memory)} aria-label={`${memory.title}, ${prettyDate(day)}`} className="relative aspect-square overflow-hidden rounded-xl shadow transition hover:-translate-y-0.5">
+              <img src={memory.mediaUrl} alt="" className="h-full w-full object-cover" />
+              <span className="absolute bottom-1 left-1 rounded-md bg-[#242117]/70 px-1 text-[10px] text-white">{index + 1}</span>
+            </button>
+          ) : (
+            <span key={day} className="grid aspect-square place-items-center rounded-xl bg-[#f6f1e8] text-[#6d675a]/70">{index + 1}</span>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -994,7 +1095,7 @@ function CheckinModal({ circle, day, current, onClose, onSaved, onDeleted, onErr
       const form = new FormData();
       form.set("circleId", circle.id); form.set("day", day); form.set("photo", photo); form.set("mood", mood); form.set("caption", caption); form.set("consentTransform", String(consent));
       const response = await fetch("/api/checkins", { method: "POST", body: form });
-      const payload = await response.json();
+      const payload = (await response.json()) as ApiPayload;
       if (!response.ok) throw new Error(payload.error);
       await onSaved();
     } catch (caught) { onError(caught instanceof Error ? caught.message : "Could not save your selfie."); } finally { setSaving(false); }
@@ -1008,7 +1109,7 @@ function CheckinModal({ circle, day, current, onClose, onSaved, onDeleted, onErr
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ circleId: circle.id, day }),
       });
-      const payload = await response.json();
+      const payload = (await response.json()) as ApiPayload;
       if (!response.ok) throw new Error(payload.error);
       await onDeleted();
     } catch (caught) {
@@ -1228,6 +1329,7 @@ async function renderMiniMovie(imageUrl: string, onProgress: (value: number) => 
   canvas.width = 720; canvas.height = 720;
   const context = canvas.getContext("2d");
   if (!context) throw new Error("Your browser could not open the movie canvas.");
+  const paint: CanvasRenderingContext2D = context;
   const stream = canvas.captureStream(30);
   const mimeType = [
     "video/mp4;codecs=avc1.42E01E",
@@ -1250,12 +1352,12 @@ async function renderMiniMovie(imageUrl: string, onProgress: (value: number) => 
       const scale = 1.03 + progress * 0.09;
       const width = canvas.width * scale;
       const height = canvas.height * scale;
-      context.fillStyle = "#242117"; context.fillRect(0, 0, canvas.width, canvas.height);
-      context.drawImage(image, (canvas.width - width) / 2 + Math.sin(progress * Math.PI) * 14, (canvas.height - height) / 2 - progress * 12, width, height);
-      context.fillStyle = "rgba(20,15,8,.16)"; context.fillRect(0, 0, canvas.width, canvas.height);
+      paint.fillStyle = "#242117"; paint.fillRect(0, 0, canvas.width, canvas.height);
+      paint.drawImage(image, (canvas.width - width) / 2 + Math.sin(progress * Math.PI) * 14, (canvas.height - height) / 2 - progress * 12, width, height);
+      paint.fillStyle = "rgba(20,15,8,.16)"; paint.fillRect(0, 0, canvas.width, canvas.height);
       const colors = ["#ef8354", "#f5d98b", "#c9d9c3", "#fff8e8"];
-      for (let i = 0; i < 22; i++) { const x = (i * 97 + progress * 310 * (i % 3 + 1)) % 780 - 30; const y = (i * 61 + progress * 920) % 780 - 30; context.save(); context.translate(x, y); context.rotate(progress * 8 + i); context.fillStyle = colors[i % colors.length]; context.fillRect(-4, -9, 8, 18); context.restore(); }
-      context.fillStyle = "rgba(255,248,232,.92)"; context.font = "900 28px Georgia"; context.fillText("kinwhim", 28, 680);
+      for (let i = 0; i < 22; i++) { const x = (i * 97 + progress * 310 * (i % 3 + 1)) % 780 - 30; const y = (i * 61 + progress * 920) % 780 - 30; paint.save(); paint.translate(x, y); paint.rotate(progress * 8 + i); paint.fillStyle = colors[i % colors.length]; paint.fillRect(-4, -9, 8, 18); paint.restore(); }
+      paint.fillStyle = "rgba(255,248,232,.92)"; paint.font = "900 28px Georgia"; paint.fillText("kinwhim", 28, 680);
       onProgress(Math.max(1, Math.round(progress * 100)));
       if (progress < 1) requestAnimationFrame(frame); else resolve();
     }

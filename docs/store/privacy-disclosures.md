@@ -11,6 +11,8 @@ These answers describe what the code in this repository actually does. If you ad
 | Selfies (+ mood, caption, AI consent flag) | R2 + `checkins` | Show your check-in to your circle; make the memory | 14 days, or sooner if deleted |
 | AI memories | R2 + `memories`, `memory_participants` | The circle’s memory shelf | Until deleted by keeper/participant, circle ends, or a participant deletes their account |
 | Reactions, read receipts | `reactions`, `notification_reads` | Reactions and the unread badge | Until account deletion |
+| Check-in dates | `checkin_log` | Streaks | Until leaving the circle or account deletion |
+| Reminders sent | `notification_log` | One reminder per kind per day | 30 days |
 | Push token | `push_tokens` | Memory-ready notifications | Until sign-out, uninstall, or deletion |
 | Reports, blocks | `reports`, `user_blocks` | Safety and moderation | Evidence: deleted on dismissal, 365 days if actioned |
 | IP address | `rate_limits` keys | Abuse prevention | ≤ 7 days |

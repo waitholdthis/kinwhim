@@ -1,5 +1,5 @@
-import { router } from "expo-router";
-import { useState } from "react";
+import { router, useLocalSearchParams } from "expo-router";
+import { useEffect, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AuthImage, BrandMark, Body, Button, Card, ErrorBanner, Eyebrow, Title } from "@/components/ui";
@@ -14,9 +14,22 @@ import type { Member } from "@/lib/types";
 const tileColors = [colors.coral, colors.butter, colors.sage, colors.peach, "#e7b4a2"];
 
 export default function Today() {
-  const { data, loading, error, refresh, selectCircle } = useDashboard();
+  const { data, loading, error, refresh, selectCircle, circleId } = useDashboard();
+  const params = useLocalSearchParams<{ circle?: string; open?: string }>();
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+
+  // Arriving from a reminder: switch to that circle, then open the camera.
+  useEffect(() => {
+    if (params.circle && params.circle !== circleId) {
+      void selectCircle(params.circle);
+      return;
+    }
+    if (params.open === "checkin" && data?.circle && data.today) {
+      router.setParams({ open: undefined });
+      router.push(data.viewer.needsTerms ? { pathname: "/terms", params: { next: "checkin" } } : "/checkin");
+    }
+  }, [params.circle, params.open, circleId, data, selectCircle]);
 
   if (!data) {
     return (
@@ -86,6 +99,13 @@ export default function Today() {
         <Title style={{ marginTop: 8, fontSize: 38, lineHeight: 40 }}>
           {me?.checkedIn ? "You’re in. Let the day unfold." : "Show up exactly as you are."}
         </Title>
+
+        {(data.streaks.circle > 0 || data.streaks.mine > 0) && (
+          <View style={styles.streaks} accessibilityLabel="Streaks">
+            {data.streaks.circle > 0 && <Text style={styles.streak}>🔥 {data.streaks.circle}-day circle streak</Text>}
+            {data.streaks.mine > 0 && <Text style={styles.streak}>✨ You: {data.streaks.mine} {data.streaks.mine === 1 ? "day" : "days"}</Text>}
+          </View>
+        )}
 
         <ErrorBanner message={notice ?? error} onDismiss={() => setNotice(null)} />
 
@@ -206,6 +226,19 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
   loading: { marginTop: 18, fontFamily: fonts.serif, fontSize: 22, fontWeight: "900", color: colors.ink, textAlign: "center" },
   header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  streaks: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 14 },
+  streak: {
+    overflow: "hidden",
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: "rgba(255,255,255,0.6)",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    fontSize: 13,
+    fontWeight: "900",
+    color: colors.ink,
+  },
   rollEyebrow: { color: colors.peach, fontWeight: "800" },
   rollTitle: { color: colors.cream, fontFamily: fonts.serif, fontSize: 28, fontWeight: "900", marginTop: 6 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 18 },

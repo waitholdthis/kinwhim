@@ -14,7 +14,7 @@ export default async function AccountPage() {
   if (!viewer) return <WebSignIn providers={await webProviderConfig()} />;
   return (
     <LegalPage eyebrow="Settings" title="Account & privacy">
-      <AccountPanel name={viewer.name} email={viewer.email} blocked={await blockedPeople(viewer.id)} />
+      <AccountPanel name={viewer.name} email={viewer.email} blocked={await blockedPeople(viewer.id)} remindersEnabled={await remindersEnabled(viewer.id)} />
     </LegalPage>
   );
 }
@@ -29,4 +29,12 @@ async function blockedPeople(userId: string) {
     .bind(userId)
     .all<{ id: string; name: string }>();
   return rows.results;
+}
+
+async function remindersEnabled(userId: string) {
+  const row = await database()
+    .prepare("SELECT reminders_enabled AS enabled FROM profiles WHERE id = ?")
+    .bind(userId)
+    .first<{ enabled: number }>();
+  return Boolean(row?.enabled ?? 1);
 }

@@ -32,16 +32,22 @@ function SplashGate() {
   return null;
 }
 
-// Tapping a "memory is ready" notification opens that memory.
+// Tapping a notification opens what it is about: a new memory, today’s
+// check-in (reminders), or the memory shelf (weekly recap).
 function NotificationRouter() {
   const { status } = useSession();
   const response = Notifications.useLastNotificationResponse();
   useEffect(() => {
     if (status !== "signedIn" || !response) return;
     if (response.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) return;
-    const data = response.notification.request.content.data as { memoryId?: string; circleId?: string };
+    const data = response.notification.request.content.data as { memoryId?: string; circleId?: string; screen?: string };
+    const circle = data.circleId ?? "";
     if (data.memoryId) {
-      router.push({ pathname: "/memory/[id]", params: { id: data.memoryId, circle: data.circleId ?? "" } });
+      router.push({ pathname: "/memory/[id]", params: { id: data.memoryId, circle } });
+    } else if (data.screen === "checkin") {
+      router.push({ pathname: "/today", params: { circle, open: "checkin" } });
+    } else if (data.screen === "memories") {
+      router.push({ pathname: "/memories", params: { circle } });
     }
     void Notifications.clearLastNotificationResponseAsync();
   }, [response, status]);

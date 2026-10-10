@@ -57,8 +57,12 @@ export default function PrivacyPage() {
             <td>To run the app: your memory shelf, emoji reactions, reveal time, and style.</td>
           </tr>
           <tr>
+            <td>Dates you checked in</td>
+            <td>To show your and your circle’s streaks. Only the date is kept, not the photo.</td>
+          </tr>
+          <tr>
             <td>Push notification token and device platform</td>
-            <td>To tell you when a memory is ready and keep your home-screen badge accurate.</td>
+            <td>To tell you when a memory is ready, remind you before reveal time if you haven’t checked in (you can turn reminders off in Settings), send a Sunday recap, and keep your home-screen badge accurate.</td>
           </tr>
           <tr>
             <td>Reports and blocks</td>
@@ -114,6 +118,8 @@ export default function PrivacyPage() {
           <tr><td>Raw selfies</td><td>{SELFIE_RETENTION_DAYS} days after the day they were taken, or sooner if you delete them.</td></tr>
           <tr><td>Memories</td><td>Until the circle keeper or anyone featured deletes it, the circle ends, or anyone featured deletes their account.</td></tr>
           <tr><td>Account details</td><td>Until you delete your account.</td></tr>
+          <tr><td>Check-in dates (for streaks)</td><td>Until you leave the circle or delete your account.</td></tr>
+          <tr><td>Record of reminders sent</td><td>30 days.</td></tr>
           <tr><td>Sign-in sessions</td><td>90 days after you last used the app.</td></tr>
           <tr><td>Email sign-in codes</td><td>10 minutes.</td></tr>
           <tr><td>Reports</td><td>Evidence is deleted when a report is dismissed. If we take action, evidence is kept for up to {REPORT_EVIDENCE_RETENTION_DAYS} days so we can handle appeals and repeat abuse.</td></tr>

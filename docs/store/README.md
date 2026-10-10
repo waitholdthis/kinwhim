@@ -23,20 +23,20 @@ Everything needed to get Kinwhim into the App Store, then Google Play. Copy-read
 | Resend domain `kinwhim.app` | resend.com | `RESEND_API_KEY`, `EMAIL_FROM` |
 | Google Play Console | play.google.com/console | `ANDROID_CERT_SHA256` from Play App Signing |
 
-Other server secrets: `OPENAI_API_KEY`, `PUBLIC_APP_URL=https://kinwhim.app`, `MODERATION_EMAIL=safety@kinwhim.app`, `ADMIN_TOKEN`, `CRON_SECRET`, `REVIEW_EMAIL`, `REVIEW_CODE`, `APP_STORE_URL`, `PLAY_STORE_URL`.
+Other server secrets: `OPENAI_API_KEY`, `PUBLIC_APP_URL=https://kinwhim.app`, `MODERATION_EMAIL=safety@kinwhim.app`, `ADMIN_EMAILS` (moderators who can open `/admin`), `ADMIN_TOKEN` (scripted admin access), `CRON_SECRET`, `REVIEW_EMAIL`, `REVIEW_CODE`, `APP_STORE_URL`, `PLAY_STORE_URL`.
 
 ## 3. Backend go-live
 
-- [ ] Apply `drizzle/0003_pink_raider.sql` to production D1. It adds the auth and safety tables, and backfills who appears in existing memories.
-- [ ] Schedule `POST /api/cron/nightly` hourly with `Authorization: Bearer $CRON_SECRET`. It makes due memories, purges selfies older than 14 days, and clears expired sessions.
+- [ ] Apply `drizzle/0003_pink_raider.sql` and `drizzle/0004_remarkable_spacker_dave.sql` to production D1, in order. They add the auth, safety, streak, and reminder tables, and backfill who appears in existing memories and past check-in dates.
+- [ ] Schedule `POST /api/cron/nightly` hourly with `Authorization: Bearer $CRON_SECRET`. It makes due memories, sends check-in reminders (2 hours before each circle’s reveal) and Sunday-evening recaps, purges selfies older than 14 days, and clears expired sessions.
 - [ ] Check that `https://kinwhim.app/.well-known/apple-app-site-association` lists `<TEAMID>.app.kinwhim` and that `/.well-known/assetlinks.json` lists the Play signing fingerprint.
 - [ ] Existing testers: signing in with Apple, Google, or email using the **same verified email** as their ChatGPT account links to their existing circles and memories. With Apple “Hide My Email”, the address won’t match; they can sign in with email instead.
 
 ## 4. Moderation runbook
 
-- Reports arrive by email (`MODERATION_EMAIL`). The queue is at `GET /api/admin/reports` with `Authorization: Bearer $ADMIN_TOKEN`.
-- Review the evidence at `GET /api/admin/reports/<id>/evidence`.
-- Act with `POST /api/admin/reports/<id>` and `{"action": "dismiss" | "remove_content" | "suspend_user" | "remove_and_suspend", "note": "…"}`. Suspending signs the person out everywhere and blocks future sign-ins.
+- Reports arrive by email (`MODERATION_EMAIL`). Moderators listed in `ADMIN_EMAILS` sign in to Kinwhim on the web and work the queue at **https://kinwhim.app/admin**. Child-safety and self-harm reports are pinned to the top, and each card shows the evidence copy, the reporter, and how many reports the person has.
+- Actions: Dismiss, Remove content, Suspend account, or Remove + suspend. Suspending signs the person out everywhere and blocks future sign-ins.
+- Scripts can use the same API with `Authorization: Bearer $ADMIN_TOKEN`: `GET /api/admin/reports?status=open`, `GET /api/admin/reports/<id>/evidence`, and `POST /api/admin/reports/<id>` with `{"action": …, "note": "…"}`.
 - For apparent CSAM: don’t download or forward it. Use `remove_and_suspend`, then report to NCMEC CyberTipline (US) and preserve the evidence as the law requires.
 
 ## 5. App Store submission
@@ -64,3 +64,9 @@ Other server secrets: `OPENAI_API_KEY`, `PUBLIC_APP_URL=https://kinwhim.app`, `M
 | Report a selfie, memory, or person; block; keeper removal; leave circle | ✓ | ✓ |
 | Blocked-people list, delete selfies, delete account | ✓ (`/account`) | ✓ (Settings) |
 | Mini movie (MP4) | ✓ (browser MediaRecorder) | ✓ (native `modules/kinwhim-movie`: AVAssetWriter / MediaCodec) |
+
+## Development checks
+
+- `npm run lint`, `npm run typecheck`, `npm run build`, then `npm run test:api`. The API tests apply local migrations, boot the built worker with test-only secrets, and cover sign-in, terms, check-ins, streaks, reports and blocks, removal, account deletion, nudges, the calendar, and moderation access.
+- `npm run db:migrate:local` applies new migrations to your local preview database.
+- GitHub Actions runs all of this, plus the mobile type check, lint, `expo-doctor`, and an iOS/Android bundle export, on every push to `main` and every pull request (`.github/workflows/ci.yml`).

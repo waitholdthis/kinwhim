@@ -1,6 +1,8 @@
 import { generateCircleMemory } from "@/lib/generate-memory";
 import { purgeExpiredSelfies, purgeOldEvidence } from "@/lib/content";
+import { runScheduledNudges } from "@/lib/nudges";
 import { database, nowSeconds } from "@/lib/kinwhim-server";
+import { localClock } from "@/lib/time";
 
 type CircleRow = { id: string; timezone: string; revealHour: number; memberCount: number };
 
@@ -59,6 +61,8 @@ export async function runNightlyMemories() {
     }
   }
 
+  const nudges = await runScheduledNudges();
+
   // Housekeeping rides along with the nightly run.
   const purgedSelfies = await purgeExpiredSelfies();
   await purgeOldEvidence();
@@ -67,6 +71,7 @@ export async function runNightlyMemories() {
     db.prepare("DELETE FROM sessions WHERE expires_at < ?").bind(now),
     db.prepare("DELETE FROM email_codes WHERE expires_at < ?").bind(now),
     db.prepare("DELETE FROM rate_limits WHERE window_start < ?").bind(now - 7 * 86_400),
+    db.prepare("DELETE FROM notification_log WHERE created_at < ?").bind(now - 30 * 86_400),
   ]);
 
   return {
@@ -74,25 +79,10 @@ export async function runNightlyMemories() {
     skipped: skipped.length,
     errors,
     purgedSelfies,
+    nudges,
     summary: generated.length
       ? `Created ${generated.length} nightly ${generated.length === 1 ? "memory" : "memories"}.`
       : "No circles were ready for a new memory.",
   };
 }
 
-function localClock(timezone: string) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(new Date());
-  const get = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((part) => part.type === type)?.value ?? "";
-  return {
-    day: `${get("year")}-${get("month")}-${get("day")}`,
-    hour: Number(get("hour")),
-  };
-}

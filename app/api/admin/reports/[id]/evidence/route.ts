@@ -3,7 +3,7 @@ import { bucket, database, jsonError } from "@/lib/kinwhim-server";
 
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
-    requireAdmin(request);
+    await requireAdmin(request);
     const { id } = await context.params;
     const report = await database()
       .prepare("SELECT evidence_key AS evidenceKey FROM reports WHERE id = ?")

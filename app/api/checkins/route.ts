@@ -7,6 +7,7 @@ import {
   requireCurrentTerms,
   requireViewer,
 } from "@/lib/kinwhim-server";
+import { nudgeLastOne } from "@/lib/nudges";
 import { allow, tooMany } from "@/lib/rate-limit";
 
 const MAX_PHOTO_BYTES = 12 * 1024 * 1024;
@@ -14,9 +15,11 @@ const MAX_PHOTO_BYTES = 12 * 1024 * 1024;
 export async function POST(request: Request) {
   try {
     const viewer = await requireViewer();
+    // Read the upload before any early rejection: some runtimes hold the
+    // response until the request body has been consumed.
+    const form = await request.formData();
     requireCurrentTerms(viewer);
     if (!(await allow(`upload:${viewer.id}`, 40, 24 * 60 * 60))) return tooMany();
-    const form = await request.formData();
     const circleId = String(form.get("circleId") || "");
     const day = String(form.get("day") || "");
     const photo = form.get("photo");
@@ -75,6 +78,11 @@ export async function POST(request: Request) {
       )
       .run();
     if (existing?.photoKey) await bucket().delete(existing.photoKey);
+    await db
+      .prepare("INSERT OR IGNORE INTO checkin_log (id, user_id, circle_id, day) VALUES (?, ?, ?, ?)")
+      .bind(crypto.randomUUID(), viewer.id, circleId, day)
+      .run();
+    await nudgeLastOne(circleId, day).catch((error) => console.error("Last-one nudge failed", error));
     return Response.json({ ok: true });
   } catch (error) {
     return jsonError(error);
@@ -97,10 +105,10 @@ export async function DELETE(request: Request) {
       .bind(body.circleId, viewer.id, body.day)
       .first<{ photoKey: string }>();
     if (existing?.photoKey) await bucket().delete(existing.photoKey);
-    await db
-      .prepare("DELETE FROM checkins WHERE circle_id = ? AND user_id = ? AND day = ?")
-      .bind(body.circleId, viewer.id, body.day)
-      .run();
+    await db.batch([
+      db.prepare("DELETE FROM checkins WHERE circle_id = ? AND user_id = ? AND day = ?").bind(body.circleId, viewer.id, body.day),
+      db.prepare("DELETE FROM checkin_log WHERE circle_id = ? AND user_id = ? AND day = ?").bind(body.circleId, viewer.id, body.day),
+    ]);
     return Response.json({ ok: true });
   } catch (error) {
     return jsonError(error);

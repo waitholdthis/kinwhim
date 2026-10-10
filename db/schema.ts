@@ -8,6 +8,7 @@ export const profiles = sqliteTable("profiles", {
   termsVersion: text("terms_version"),
   termsAcceptedAt: integer("terms_accepted_at"),
   suspendedAt: integer("suspended_at"),
+  remindersEnabled: integer("reminders_enabled", { mode: "boolean" }).notNull().default(true),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
@@ -253,3 +254,33 @@ export const rateLimits = sqliteTable("rate_limits", {
   count: integer("count").notNull(),
   windowStart: integer("window_start").notNull(),
 });
+
+// Push notifications already sent, so each nudge goes out at most once per
+// person, kind, circle, and day.
+export const notificationLog = sqliteTable(
+  "notification_log",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    kind: text("kind").notNull(),
+    circleId: text("circle_id").notNull(),
+    day: text("day").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("notification_log_unique").on(table.userId, table.kind, table.circleId, table.day),
+  ],
+);
+
+// Dates someone checked in. Selfies are purged after 14 days; this keeps only
+// the date so streaks survive.
+export const checkinLog = sqliteTable(
+  "checkin_log",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    circleId: text("circle_id").notNull(),
+    day: text("day").notNull(),
+  },
+  (table) => [uniqueIndex("checkin_log_unique").on(table.userId, table.circleId, table.day)],
+);

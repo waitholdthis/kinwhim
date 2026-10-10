@@ -36,7 +36,7 @@ export type Memory = {
   featuresViewer: boolean;
 };
 
-export type Viewer = { id: string; name: string; email: string; needsTerms: boolean };
+export type Viewer = { id: string; name: string; email: string; needsTerms: boolean; remindersEnabled: boolean };
 
 export type Dashboard = {
   viewer: Viewer;
@@ -48,6 +48,7 @@ export type Dashboard = {
   unreadCount: number;
   badgeCount: number;
   termsVersion: string;
+  streaks: { circle: number; mine: number };
 };
 
 export type SessionUser = {

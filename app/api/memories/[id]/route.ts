@@ -1,5 +1,27 @@
 import { deleteMemories } from "@/lib/content";
 import { database, jsonError, requireCircleMember, requireViewer } from "@/lib/kinwhim-server";
+import { listMemories } from "@/lib/memories";
+
+export const dynamic = "force-dynamic";
+
+// One memory, for opening anything older than the dashboard's recent list.
+export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
+  try {
+    const viewer = await requireViewer();
+    const { id } = await context.params;
+    const row = await database()
+      .prepare("SELECT circle_id AS circleId FROM memories WHERE id = ?")
+      .bind(id)
+      .first<{ circleId: string }>();
+    if (!row) return Response.json({ error: "Memory not found." }, { status: 404 });
+    await requireCircleMember(row.circleId, viewer.id);
+    const [memory] = await listMemories({ viewerId: viewer.id, circleId: row.circleId, memoryId: id, limit: 1 });
+    if (!memory) return Response.json({ error: "Memory not found." }, { status: 404 });
+    return Response.json({ memory: { ...memory, circleId: row.circleId } });
+  } catch (error) {
+    return jsonError(error);
+  }
+}
 
 // The keeper, or anyone who appears in a memory, can delete it for the circle.
 export async function DELETE(_request: Request, context: { params: Promise<{ id: string }> }) {
