@@ -1,9 +1,11 @@
 "use client";
 
 import { Ban, Bell, LoaderCircle, LogOut, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 export function AccountPanel({ name, email, blocked: initialBlocked, remindersEnabled: initialReminders }: { name: string; email: string; blocked: Array<{ id: string; name: string }>; remindersEnabled: boolean }) {
+  const router = useRouter();
   const [blocked, setBlocked] = useState(initialBlocked);
   const [reminders, setReminders] = useState(initialReminders);
   const [busy, setBusy] = useState<string | null>(null);
@@ -35,7 +37,10 @@ export function AccountPanel({ name, email, blocked: initialBlocked, remindersEn
         <button
           className="mt-5 flex items-center gap-2 rounded-full border border-[#29251d]/15 px-4 py-2 text-sm font-bold"
           onClick={async () => {
-            if (await call("/api/auth/logout", { method: "POST", body: "{}" }, "logout")) window.location.href = "/";
+            if (await call("/api/auth/logout", { method: "POST", body: "{}" }, "logout")) {
+              router.replace("/");
+              router.refresh();
+            }
           }}
         >
           {busy === "logout" ? <LoaderCircle className="animate-spin" size={16} /> : <LogOut size={16} />} Sign out
@@ -130,7 +135,8 @@ export function AccountPanel({ name, email, blocked: initialBlocked, remindersEn
           className="mt-4 flex items-center gap-2 rounded-full bg-[#b23b2a] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40"
           onClick={async () => {
             if (await call("/api/account", { method: "DELETE", body: JSON.stringify({ confirm: "DELETE" }) }, "delete")) {
-              window.location.href = "/delete-account?done=1";
+              router.replace("/delete-account?done=1");
+              router.refresh();
             }
           }}
         >

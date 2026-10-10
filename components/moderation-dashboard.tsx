@@ -2,6 +2,7 @@
 
 import { Ban, Check, Flag, ImageOff, LoaderCircle, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { PrivateImage } from "@/components/private-image";
 
 type Report = {
   id: string;
@@ -135,8 +136,7 @@ function ReportCard({ report, onResolved }: { report: Report; onResolved: () => 
     <article className={`grid gap-5 rounded-[28px] border bg-white/70 p-5 sm:grid-cols-[220px_1fr] ${urgent.has(report.reason) && open ? "border-[#b23b2a]" : "border-[#29251d]/10"}`}>
       <div className="aspect-square overflow-hidden rounded-[20px] bg-[#eae2d4]">
         {report.evidenceUrl && !evidenceFailed ? (
-          // eslint-disable-next-line @next/next/no-img-element -- private, authenticated image
-          <img src={report.evidenceUrl} alt="Reported content" onError={() => setEvidenceFailed(true)} className="h-full w-full object-cover" />
+          <PrivateImage src={report.evidenceUrl} alt="Reported content" onError={() => setEvidenceFailed(true)} className="h-full w-full object-cover" />
         ) : (
           <div className="grid h-full place-items-center p-4 text-center text-sm font-bold text-[#6d675a]">
             <span><ImageOff className="mx-auto mb-2" />{report.targetType === "user" ? "Report about a person" : "No evidence copy"}</span>

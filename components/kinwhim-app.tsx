@@ -27,6 +27,7 @@ import {
   X,
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { PrivateImage } from "@/components/private-image";
 
 type Circle = {
   id: string;
@@ -529,7 +530,7 @@ export function KinwhimApp({ user }: { user: { name: string; email: string } }) 
                   </div>
                   {newestMemory ? (
                     <button className="mt-5 flex w-full items-center gap-3 text-left" onClick={() => { setSelectedMemory(newestMemory); setTab("memories"); }}>
-                      <img src={newestMemory.mediaUrl} alt="Latest Kinwhim memory" className="h-16 w-16 rounded-2xl object-cover" />
+                      <PrivateImage src={newestMemory.mediaUrl} alt="Latest Kinwhim memory" className="h-16 w-16 rounded-2xl object-cover" />
                       <div className="min-w-0">
                         <p className="truncate text-sm font-black">{newestMemory.title}</p>
                         <p className="mt-1 text-xs text-[#3f5d42]">Open the latest memory →</p>
@@ -790,7 +791,7 @@ function MemberTile({ member, index, onMenu }: { member: Member; index: number; 
     <div className="min-w-0">
       <div className="relative aspect-[.82] overflow-hidden rounded-[22px] bg-white/10">
         {member.photoUrl ? (
-          <img src={member.photoUrl} alt={`${member.name}'s selfie`} className="h-full w-full object-cover" />
+          <PrivateImage src={member.photoUrl} alt={`${member.name}'s selfie`} className="h-full w-full object-cover" />
         ) : (
           <div className="grid h-full place-items-center text-2xl font-black text-[#242117]" style={{ background: colors[index % colors.length] }}>
             {member.blocked ? <Ban size={24} /> : initials(member.name)}
@@ -856,7 +857,7 @@ function MemoryShelf({ circleId, memories, selected, busy, movieProgress, movieA
     <section>
       <div className="grid gap-6 lg:grid-cols-[1.2fr_.8fr]">
         <div className="group relative overflow-hidden rounded-[34px] bg-[#242117] p-3 shadow-[0_30px_80px_rgba(55,38,18,.22)]">
-          <img src={featured.mediaUrl} alt={featured.title} className="aspect-square w-full rounded-[25px] object-cover" />
+          <PrivateImage src={featured.mediaUrl} alt={featured.title} className="aspect-square w-full rounded-[25px] object-cover" />
           <div className="absolute inset-x-8 bottom-8 rounded-[22px] bg-[#242117]/88 p-5 text-[#fff8e8] backdrop-blur-md">
             <p className="text-xs font-black uppercase tracking-[.16em] text-[#f5d98b]">{prettyDate(featured.day)}</p>
             <h2 className="mt-1 font-serif text-3xl font-black">{featured.title}</h2>
@@ -925,7 +926,7 @@ function MemoryShelf({ circleId, memories, selected, busy, movieProgress, movieA
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
           {memories.map((memory, index) => (
             <button key={memory.id} onClick={() => onSelect(memory)} className={`group text-left ${index % 2 ? "sm:translate-y-5" : ""}`}>
-              <img src={memory.mediaUrl} alt={memory.title} className="aspect-square w-full rounded-[24px] object-cover shadow-lg transition duration-300 group-hover:-translate-y-2 group-hover:rotate-1" />
+              <PrivateImage src={memory.mediaUrl} alt={memory.title} className="aspect-square w-full rounded-[24px] object-cover shadow-lg transition duration-300 group-hover:-translate-y-2 group-hover:rotate-1" />
               <p className="mt-3 truncate font-black">{memory.title}</p><p className="text-xs text-[#6d675a]">{prettyDate(memory.day)}</p>
             </button>
           ))}
@@ -981,7 +982,7 @@ function MemoryCalendar({ circleId, initialMonth, onSelect }: { circleId: string
           const memory = byDay.get(day);
           return memory ? (
             <button key={day} onClick={() => onSelect(memory)} aria-label={`${memory.title}, ${prettyDate(day)}`} className="relative aspect-square overflow-hidden rounded-xl shadow transition hover:-translate-y-0.5">
-              <img src={memory.mediaUrl} alt="" className="h-full w-full object-cover" />
+              <PrivateImage src={memory.mediaUrl} alt="" className="h-full w-full object-cover" />
               <span className="absolute bottom-1 left-1 rounded-md bg-[#242117]/70 px-1 text-[10px] text-white">{index + 1}</span>
             </button>
           ) : (
@@ -1123,7 +1124,7 @@ function CheckinModal({ circle, day, current, onClose, onSaved, onDeleted, onErr
       <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-[.18em] text-[#b75d3e]">Today’s check-in</p><h2 className="mt-2 font-serif text-4xl font-black">No performance required.</h2></div><CloseButton onClick={onClose} /></div>
       <form onSubmit={submit} className="mt-7 grid gap-6 sm:grid-cols-[.9fr_1.1fr]">
         <button type="button" onClick={() => inputRef.current?.click()} className="group relative aspect-[4/5] overflow-hidden rounded-[28px] bg-[#e7ded0]">
-          {preview ? <img src={preview} alt="Your selfie preview" className="h-full w-full object-cover" /> : <div className="grid h-full place-items-center p-8 text-center"><span><Camera className="mx-auto" size={36} /><strong className="mt-4 block">Open camera or choose a photo</strong><small className="mt-2 block text-[#6d675a]">Front-camera photos work beautifully.</small></span></div>}
+          {preview ? <PrivateImage src={preview} alt="Your selfie preview" className="h-full w-full object-cover" /> : <div className="grid h-full place-items-center p-8 text-center"><span><Camera className="mx-auto" size={36} /><strong className="mt-4 block">Open camera or choose a photo</strong><small className="mt-2 block text-[#6d675a]">Front-camera photos work beautifully.</small></span></div>}
           <span className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-[#242117]/85 px-4 py-2 text-xs font-black text-white backdrop-blur">{preview ? "Choose another" : "Add selfie"}</span>
           <input ref={inputRef} hidden type="file" accept="image/*" capture="user" onChange={(event) => choose(event.target.files?.[0])} />
         </button>
@@ -1158,7 +1159,7 @@ function ActivityModal({ memories, onClose, onOpen }: {
             onClick={() => void onOpen(memory)}
             className="flex w-full items-center gap-4 rounded-[22px] border border-[#29251d]/10 bg-white/50 p-3 text-left transition hover:-translate-y-0.5 hover:bg-white/80"
           >
-            <img src={memory.mediaUrl} alt="" className="h-16 w-16 rounded-2xl object-cover" />
+            <PrivateImage src={memory.mediaUrl} alt="" className="h-16 w-16 rounded-2xl object-cover" />
             <span className="min-w-0 flex-1"><strong className="block truncate font-serif text-lg">{memory.title}</strong><small className="mt-1 block text-[#6d675a]">{prettyDate(memory.day)} · tap to open</small></span>
             {!memory.isRead && <span className="h-3 w-3 shrink-0 rounded-full bg-[#ef8354]" aria-label="Unread" />}
           </button>
